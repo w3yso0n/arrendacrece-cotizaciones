@@ -1,7 +1,8 @@
 "use client";
 
-import amortizacionJson from "../tabla_amorticacion.json";
-import { useMemo, useState } from "react";
+import Image from "next/image";
+import { useEffect, useMemo, useState } from "react";
+import logo from "../logo.png";
 
 type QuoteInput = {
   cliente: string;
@@ -25,13 +26,6 @@ type ConceptRow = {
   importe: number;
   iva: number;
   total: number;
-};
-
-type AmortRow = {
-  periodo: number;
-  SI: number;
-  interes: number;
-  amortizacion: number;
 };
 
 type MonthlyRow = {
@@ -108,6 +102,7 @@ function Input({
   step,
   readOnly,
   selectOnFocus,
+  onBlur,
 }: {
   label: string;
   value: string;
@@ -120,6 +115,7 @@ function Input({
   step?: number;
   readOnly?: boolean;
   selectOnFocus?: boolean;
+  onBlur?: () => void;
 }) {
   return (
     <label className="flex flex-col gap-2">
@@ -134,6 +130,7 @@ function Input({
           onFocus={(e) => {
             if (selectOnFocus && !readOnly) e.currentTarget.select();
           }}
+          onBlur={onBlur}
           inputMode={inputMode}
           min={min}
           max={max}
@@ -192,6 +189,11 @@ export default function Home() {
   const [form, setForm] = useState<QuoteInput>(initial);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const [tab, setTab] = useState<"cotizador" | "mensual">("cotizador");
+  const [plazoDraft, setPlazoDraft] = useState<string>(String(initial.plazoMeses));
+
+  useEffect(() => {
+    setPlazoDraft(String(form.plazoMeses));
+  }, [form.plazoMeses]);
 
   const derived = useMemo(() => {
     const ivaRate = clampNumber(form.ivaPct / 100, 0, 1);
@@ -205,37 +207,27 @@ export default function Home() {
     const ivaBien = form.valorBienConIva - valorBienSinIva;
     const valorConIva = form.valorBienConIva;
 
-    const amortData = (amortizacionJson.data ?? []) as AmortRow[];
-    const basePrincipal =
-      amortData.length > 0 ? amortData[0]!.SI : Math.max(1, valorBienSinIva);
-    const scale = basePrincipal > 0 ? valorBienSinIva / basePrincipal : 1;
-
     const meses = clampNumber(form.plazoMeses, 1, 120);
-    const rows = amortData.slice(0, meses).map((r) => ({
-      ...r,
-      SI: r.SI * scale,
-      interes: r.interes * scale,
-      amortizacion: r.amortizacion * scale,
-    }));
-
-    const rentaMensualAmort =
-      rows.length > 0 ? rows[0]!.interes + rows[0]!.amortizacion : 0;
-    const rentaMensual = rentaMensualAmort > 0 ? rentaMensualAmort : form.rentaMensual;
-    const sumaRentas = rows.reduce(
-      (acc, r) => acc + r.interes + r.amortizacion,
-      0,
-    );
+    const tasaMensual = clampNumber((tasaImplicitaPct / 100) / 12, 0, 1);
+    const principalFinanciado = Math.max(0, valorBienSinIva - form.ratificacion);
+    const fv = (valorBienSinIva * form.valorResidualPct) / 100;
+    const descuentoFv =
+      tasaMensual > 0 ? fv / Math.pow(1 + tasaMensual, meses) : fv;
+    const rentaMensual =
+      tasaMensual > 0
+        ? ((principalFinanciado - descuentoFv) * tasaMensual) /
+          (1 - Math.pow(1 + tasaMensual, -meses))
+        : (principalFinanciado - fv) / Math.max(1, meses);
+    const sumaRentas = rentaMensual * meses;
 
     const deposito = rentaMensual * form.depositoMesesRenta;
     const rentaConIva = rentaMensual * (1 + ivaRate);
 
     const comisionApertura = (valorBienSinIva * form.comisionAperturaPct) / 100;
-    const residualFromTable =
-      amortData.length > meses ? amortData[meses]!.SI * scale : 0;
+    const ivaComisionApertura = comisionApertura * ivaRate;
+    const comisionAperturaConIva = comisionApertura + ivaComisionApertura;
     const valorResidual =
-      residualFromTable > 0
-        ? residualFromTable
-        : (valorBienSinIva * form.valorResidualPct) / 100;
+      (valorBienSinIva * form.valorResidualPct) / 100;
 
     const mkConcept = (concepto: string, base: number, aplicaIva = true) => {
       const iva = aplicaIva ? base * ivaRate : 0;
@@ -250,6 +242,18 @@ export default function Home() {
     const pagoInicialImporte = form.ratificacion + comisionApertura + deposito;
     const pagoInicialIva = (form.ratificacion + comisionApertura) * ivaRate;
     const pagoInicialTotal = pagoInicialImporte + pagoInicialIva;
+
+    const seguroBase = form.seguroMensual;
+    const ivaSeguro = seguroBase * ivaRate;
+    const seguroTotal = seguroBase + ivaSeguro;
+
+    const gpsBase = form.gpsMensual;
+    const ivaGps = gpsBase * ivaRate;
+    const gpsTotal = gpsBase + ivaGps;
+
+    const rentaBase = rentaMensual;
+    const ivaRenta = rentaBase * ivaRate;
+    const rentaTotal = rentaBase + ivaRenta;
 
     const mensual: MonthlyRow[] = [
       {
@@ -268,26 +272,14 @@ export default function Home() {
         gpsTotal: 0,
         totalMes: pagoInicialTotal,
       },
-      ...rows.map((r) => {
-        const rentaBase = r.interes + r.amortizacion;
-        const ivaRenta = rentaBase * ivaRate;
-        const rentaTotal = rentaBase + ivaRenta;
-
-        const seguroBase = form.seguroMensual;
-        const ivaSeguro = seguroBase * ivaRate;
-        const seguroTotal = seguroBase + ivaSeguro;
-
-        const gpsBase = form.gpsMensual;
-        const ivaGps = gpsBase * ivaRate;
-        const gpsTotal = gpsBase + ivaGps;
-
+      ...Array.from({ length: meses }, (_, i) => {
+        const mes = i + 1;
         const totalMes = rentaTotal + seguroTotal + gpsTotal;
-
         return {
-          mes: r.periodo,
-          saldoInicial: r.SI,
-          interes: r.interes,
-          amortizacion: r.amortizacion,
+          mes,
+          saldoInicial: null,
+          interes: 0,
+          amortizacion: 0,
           rentaBase,
           ivaRenta,
           rentaTotal,
@@ -349,6 +341,8 @@ export default function Home() {
       deposito,
       rentaConIva,
       comisionApertura,
+      ivaComisionApertura,
+      comisionAperturaConIva,
       valorResidual,
       rentaMensual,
       pagoInicialImporte,
@@ -417,8 +411,15 @@ export default function Home() {
       <div className="mx-auto w-full max-w-7xl px-6 py-6">
         <header className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div className="flex items-center gap-3">
-            <div className="grid h-10 w-10 place-items-center rounded-2xl bg-sky-600 font-extrabold text-white shadow-sm">
-              AC
+            <div className="grid h-10 w-10 place-items-center overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
+              <Image
+                src={logo}
+                alt="Arrenda Crece"
+                width={40}
+                height={40}
+                className="h-10 w-10 object-contain"
+                priority
+              />
             </div>
             <div className="leading-tight">
               <div className="text-sm font-bold text-slate-900">
@@ -440,6 +441,33 @@ export default function Home() {
           </div>
         </header>
 
+        <div className="mt-6 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setTab("cotizador")}
+            className={`rounded-full px-4 py-2 text-sm font-semibold ring-1 transition ${
+              tab === "cotizador"
+                ? "bg-slate-900 text-white ring-slate-900"
+                : "bg-white text-slate-700 ring-slate-200 hover:bg-slate-50"
+            }`}
+          >
+            Cotización
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab("mensual")}
+            className={`rounded-full px-4 py-2 text-sm font-semibold ring-1 transition ${
+              tab === "mensual"
+                ? "bg-slate-900 text-white ring-slate-900"
+                : "bg-white text-slate-700 ring-slate-200 hover:bg-slate-50"
+            }`}
+          >
+            Desglose mensual
+          </button>
+        </div>
+
+        {tab === "cotizador" ? (
+          <>
         <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-12">
           <div className="lg:col-span-7">
             <section className={`${cardClassName("white")} p-6`}>
@@ -540,15 +568,19 @@ export default function Home() {
                 />
                 <Input
                   label="Plazo (meses)"
-                  value={String(form.plazoMeses)}
+                  value={plazoDraft}
                   inputMode="numeric"
                   selectOnFocus
-                  onChange={(v) =>
-                    setForm((p) => ({
-                      ...p,
-                      plazoMeses: clampNumber(Math.round(toNumber(v)), 1, 120),
-                    }))
-                  }
+                  onChange={(v) => {
+                    const digitsOnly = v.replace(/[^\d]/g, "");
+                    setPlazoDraft(digitsOnly);
+                  }}
+                  onBlur={() => {
+                    const n = plazoDraft === "" ? form.plazoMeses : Number(plazoDraft);
+                    const next = clampNumber(Math.round(n), 1, 120);
+                    setForm((p) => ({ ...p, plazoMeses: next }));
+                    setPlazoDraft(String(next));
+                  }}
                 />
 
                 <Input
@@ -569,6 +601,10 @@ export default function Home() {
                     }))
                   }
                 />
+                <div className="-mt-2 text-xs font-semibold text-slate-500">
+                  Ratificación <span className="font-extrabold">sin IVA</span> (el
+                  IVA se considera dentro del pago inicial).
+                </div>
                 <Input
                   label="Pago inicial (MXN)"
                   value={String(Math.round(derived.pagoInicialTotal * 100) / 100)}
@@ -615,6 +651,31 @@ export default function Home() {
                       comisionAperturaPct: clampNumber(toNumber(v), 0, 50),
                     }))
                   }
+                />
+                <Input
+                  label="Comisión apertura (MXN)"
+                  value={String(Math.round(derived.comisionApertura * 100) / 100)}
+                  inputMode="decimal"
+                  readOnly
+                  onChange={() => {}}
+                />
+                <Input
+                  label="IVA comisión (MXN)"
+                  value={String(
+                    Math.round(derived.ivaComisionApertura * 100) / 100,
+                  )}
+                  inputMode="decimal"
+                  readOnly
+                  onChange={() => {}}
+                />
+                <Input
+                  label="Comisión apertura con IVA (MXN)"
+                  value={String(
+                    Math.round(derived.comisionAperturaConIva * 100) / 100,
+                  )}
+                  inputMode="decimal"
+                  readOnly
+                  onChange={() => {}}
                 />
                 <Input
                   label="Seguro mensual (MXN)"
@@ -828,6 +889,98 @@ export default function Home() {
             </table>
           </div>
         </section>
+          </>
+        ) : (
+          <section className={`${cardClassName("white")} mt-6 overflow-hidden`}>
+            <div className="p-6">
+              <div className="text-sm font-extrabold text-slate-800">
+                Desglose por mes
+              </div>
+              <div className="mt-1 text-xs font-semibold text-slate-500">
+                Pagos mensuales (renta + IVA + seguro + GPS). Mes 0 incluye el
+                pago inicial.
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[1100px] border-separate border-spacing-0">
+                <thead>
+                  <tr className="bg-slate-900 text-white">
+                    <th className="px-6 py-4 text-left text-xs font-extrabold">
+                      Mes
+                    </th>
+                    <th className="px-6 py-4 text-right text-xs font-extrabold">
+                      Saldo inicial
+                    </th>
+                    <th className="px-6 py-4 text-right text-xs font-extrabold">
+                      Interés
+                    </th>
+                    <th className="px-6 py-4 text-right text-xs font-extrabold">
+                      Amortización
+                    </th>
+                    <th className="px-6 py-4 text-right text-xs font-extrabold">
+                      Renta (sin IVA)
+                    </th>
+                    <th className="px-6 py-4 text-right text-xs font-extrabold">
+                      IVA renta
+                    </th>
+                    <th className="px-6 py-4 text-right text-xs font-extrabold">
+                      Renta (con IVA)
+                    </th>
+                    <th className="px-6 py-4 text-right text-xs font-extrabold">
+                      Seguro (con IVA)
+                    </th>
+                    <th className="px-6 py-4 text-right text-xs font-extrabold">
+                      GPS (con IVA)
+                    </th>
+                    <th className="px-6 py-4 text-right text-xs font-extrabold">
+                      Total mes
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {derived.mensual.map((r) => (
+                    <tr
+                      key={r.mes}
+                      className="border-b border-slate-100 last:border-b-0"
+                    >
+                      <td className="px-6 py-4 text-sm font-extrabold text-slate-800">
+                        {r.mes === 0 ? "Inicial" : r.mes}
+                      </td>
+                      <td className="px-6 py-4 text-right text-sm font-semibold text-slate-700">
+                        {r.saldoInicial == null ? "—" : mxn.format(r.saldoInicial)}
+                      </td>
+                      <td className="px-6 py-4 text-right text-sm font-semibold text-slate-700">
+                        {mxn.format(r.interes)}
+                      </td>
+                      <td className="px-6 py-4 text-right text-sm font-semibold text-slate-700">
+                        {mxn.format(r.amortizacion)}
+                      </td>
+                      <td className="px-6 py-4 text-right text-sm font-semibold text-slate-700">
+                        {mxn.format(r.rentaBase)}
+                      </td>
+                      <td className="px-6 py-4 text-right text-sm font-semibold text-slate-500">
+                        {mxn.format(r.ivaRenta)}
+                      </td>
+                      <td className="px-6 py-4 text-right text-sm font-extrabold text-slate-800">
+                        {mxn.format(r.rentaTotal)}
+                      </td>
+                      <td className="px-6 py-4 text-right text-sm font-semibold text-slate-700">
+                        {mxn.format(r.seguroTotal)}
+                      </td>
+                      <td className="px-6 py-4 text-right text-sm font-semibold text-slate-700">
+                        {mxn.format(r.gpsTotal)}
+                      </td>
+                      <td className="px-6 py-4 text-right text-sm font-extrabold text-sky-700">
+                        {mxn.format(r.totalMes)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
       </div>
     </div>
   );

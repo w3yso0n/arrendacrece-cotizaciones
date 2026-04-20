@@ -11,6 +11,7 @@ type QuoteInput = {
   ivaPct: number;
 
   tasaEfectivaPct: number;
+  tasaImplicitaPct: number;
   plazoMeses: number;
   rentaMensual: number;
   ratificacion: number;
@@ -69,6 +70,20 @@ function toNumber(raw: string) {
   return Number.isFinite(n) ? n : 0;
 }
 
+function sanitizeDecimalDraft(raw: string) {
+  const cleaned = raw.replace(/[^\d.]/g, "");
+  const firstDot = cleaned.indexOf(".");
+  if (firstDot === -1) return cleaned;
+  const head = cleaned.slice(0, firstDot + 1);
+  const tail = cleaned.slice(firstDot + 1).replace(/\./g, "");
+  return `${head}${tail}`;
+}
+
+function tasaImplicitaDesdeEfectivaPct(tasaEfectivaPct: number) {
+  const tasaEfectiva = clampNumber(tasaEfectivaPct / 100, 0, 10);
+  return ((Math.pow(1 + tasaEfectiva, 1 / 12) - 1) * 12) * 100;
+}
+
 function downloadJson(filename: string, data: unknown) {
   const blob = new Blob([JSON.stringify(data, null, 2)], {
     type: "application/json;charset=utf-8",
@@ -103,6 +118,7 @@ function Input({
   readOnly,
   selectOnFocus,
   onBlur,
+  onFocus,
 }: {
   label: string;
   value: string;
@@ -116,6 +132,7 @@ function Input({
   readOnly?: boolean;
   selectOnFocus?: boolean;
   onBlur?: () => void;
+  onFocus?: React.FocusEventHandler<HTMLInputElement>;
 }) {
   return (
     <label className="flex flex-col gap-2">
@@ -128,6 +145,7 @@ function Input({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onFocus={(e) => {
+            onFocus?.(e);
             if (selectOnFocus && !readOnly) e.currentTarget.select();
           }}
           onBlur={onBlur}
@@ -169,13 +187,15 @@ function Button({
 }
 
 export default function Home() {
+  const tasaEfectivaInicial = 24;
   const initial: QuoteInput = {
     cliente: "",
     descripcionBien: "",
     valorBienConIva: 580_000,
     ivaPct: 16,
 
-    tasaEfectivaPct: 24,
+    tasaEfectivaPct: tasaEfectivaInicial,
+    tasaImplicitaPct: tasaImplicitaDesdeEfectivaPct(tasaEfectivaInicial),
     plazoMeses: 36,
     rentaMensual: 18_500,
     ratificacion: 0,
@@ -190,17 +210,32 @@ export default function Home() {
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const [tab, setTab] = useState<"cotizador" | "mensual">("cotizador");
   const [plazoDraft, setPlazoDraft] = useState<string>(String(initial.plazoMeses));
+  const [implicitaManual, setImplicitaManual] = useState(false);
+  const [efectivaDraft, setEfectivaDraft] = useState<string>(
+    String(initial.tasaEfectivaPct),
+  );
+  const [implicitDraft, setImplicitDraft] = useState<string>(
+    String(initial.tasaImplicitaPct),
+  );
+  const [efectivaFocused, setEfectivaFocused] = useState(false);
+  const [implicitFocused, setImplicitFocused] = useState(false);
 
   useEffect(() => {
     setPlazoDraft(String(form.plazoMeses));
   }, [form.plazoMeses]);
 
+  useEffect(() => {
+    if (!efectivaFocused) setEfectivaDraft(String(form.tasaEfectivaPct));
+  }, [form.tasaEfectivaPct, efectivaFocused]);
+
+  useEffect(() => {
+    if (!implicitFocused) setImplicitDraft(String(form.tasaImplicitaPct));
+  }, [form.tasaImplicitaPct, implicitFocused]);
+
   const derived = useMemo(() => {
     const ivaRate = clampNumber(form.ivaPct / 100, 0, 1);
 
-    const tasaEfectiva = clampNumber(form.tasaEfectivaPct / 100, 0, 10);
-    const tasaImplicitaPct =
-      ((Math.pow(1 + tasaEfectiva, 1 / 12) - 1) * 12) * 100;
+    const tasaImplicitaPct = form.tasaImplicitaPct;
 
     const divisor = 1 + ivaRate;
     const valorBienSinIva = divisor > 0 ? form.valorBienConIva / divisor : 0;
@@ -371,7 +406,7 @@ export default function Home() {
         comisionApertura: derived.comisionApertura,
         valorResidual: derived.valorResidual,
         rentaMensual: derived.rentaMensual,
-        tasaImplicitaPct: derived.tasaImplicitaPct,
+        tasaImplicitaPct: form.tasaImplicitaPct,
         ratificacion: form.ratificacion,
         pagoInicial: {
           importe: derived.pagoInicialImporte,
@@ -404,6 +439,11 @@ export default function Home() {
   const restablecer = () => {
     setForm(initial);
     setLastSavedAt(null);
+    setImplicitaManual(false);
+    setEfectivaFocused(false);
+    setImplicitFocused(false);
+    setEfectivaDraft(String(initial.tasaEfectivaPct));
+    setImplicitDraft(String(initial.tasaImplicitaPct));
   };
 
   return (
@@ -548,24 +588,68 @@ export default function Home() {
               <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-3">
                 <Input
                   label="Tasa efectiva (%)"
-                  value={String(form.tasaEfectivaPct)}
+                  value={efectivaDraft}
                   inputMode="decimal"
                   suffix="%"
-                  onChange={(v) =>
+                  onFocus={() => setEfectivaFocused(true)}
+                  onChange={(v) => setEfectivaDraft(sanitizeDecimalDraft(v))}
+                  onBlur={() => {
+                    setEfectivaFocused(false);
+                    const parsed =
+                      efectivaDraft.trim() === ""
+                        ? form.tasaEfectivaPct
+                        : toNumber(efectivaDraft);
+                    const nextEf = clampNumber(parsed, 0, 200);
+                    setImplicitaManual(false);
+                    const nextIm = tasaImplicitaDesdeEfectivaPct(nextEf);
+                    setImplicitFocused(false);
                     setForm((p) => ({
                       ...p,
-                      tasaEfectivaPct: clampNumber(toNumber(v), 0, 200),
-                    }))
-                  }
+                      tasaEfectivaPct: nextEf,
+                      tasaImplicitaPct: nextIm,
+                    }));
+                    setEfectivaDraft(String(nextEf));
+                    setImplicitDraft(String(nextIm));
+                  }}
                 />
-                <Input
-                  label="Tasa implícita (%)"
-                  value={String(Math.round(derived.tasaImplicitaPct * 100) / 100)}
-                  inputMode="decimal"
-                  suffix="%"
-                  readOnly
-                  onChange={() => {}}
-                />
+                <div className="flex flex-col gap-2">
+                  <Input
+                    label="Tasa implícita (%)"
+                    value={implicitDraft}
+                    inputMode="decimal"
+                    suffix="%"
+                    onFocus={() => setImplicitFocused(true)}
+                    onChange={(v) => setImplicitDraft(sanitizeDecimalDraft(v))}
+                    onBlur={() => {
+                      setImplicitFocused(false);
+                      const parsed =
+                        implicitDraft.trim() === ""
+                          ? form.tasaImplicitaPct
+                          : toNumber(implicitDraft);
+                      const nextIm = clampNumber(parsed, 0, 200);
+                      const auto = tasaImplicitaDesdeEfectivaPct(
+                        form.tasaEfectivaPct,
+                      );
+                      const manual =
+                        Math.round(nextIm * 100) / 100 !==
+                        Math.round(auto * 100) / 100;
+                      setImplicitaManual(manual);
+                      setForm((p) => ({ ...p, tasaImplicitaPct: nextIm }));
+                      setImplicitDraft(String(nextIm));
+                    }}
+                  />
+                  <div className="text-xs font-semibold text-slate-500">
+                    {implicitaManual
+                      ? "Valor manual (al cambiar la tasa efectiva se vuelve a calcular sola)."
+                      : `Calculada desde efectiva: ${Math.round(
+                          tasaImplicitaDesdeEfectivaPct(
+                            efectivaFocused
+                              ? clampNumber(toNumber(efectivaDraft), 0, 200)
+                              : form.tasaEfectivaPct,
+                          ) * 100,
+                        ) / 100}%.`}
+                  </div>
+                </div>
                 <Input
                   label="Plazo (meses)"
                   value={plazoDraft}

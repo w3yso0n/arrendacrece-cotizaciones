@@ -3,6 +3,8 @@
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import logo from "../logo.png";
+import { CotizacionPdfDocument } from "./pdf/CotizacionPdf";
+import type { DocumentProps } from "@react-pdf/renderer";
 
 type QuoteInput = {
   cliente: string;
@@ -88,6 +90,22 @@ function downloadJson(filename: string, data: unknown) {
   const blob = new Blob([JSON.stringify(data, null, 2)], {
     type: "application/json;charset=utf-8",
   });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function downloadPdf(
+  filename: string,
+  doc: React.ReactElement<DocumentProps>,
+) {
+  const mod = await import("@react-pdf/renderer");
+  const blob = await mod.pdf(doc).toBlob();
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -244,7 +262,7 @@ export default function Home() {
 
     const meses = clampNumber(form.plazoMeses, 1, 120);
     const tasaMensual = clampNumber((tasaImplicitaPct / 100) / 12, 0, 1);
-    const principalFinanciado = Math.max(0, valorBienSinIva - form.ratificacion);
+    const principalFinanciado = Math.max(0, valorBienSinIva);
     const fv = (valorBienSinIva * form.valorResidualPct) / 100;
     const descuentoFv =
       tasaMensual > 0 ? fv / Math.pow(1 + tasaMensual, meses) : fv;
@@ -426,6 +444,52 @@ export default function Home() {
     );
   };
 
+  const exportarPdf = async () => {
+    const logoDataUrl = await new Promise<string>((resolve, reject) => {
+      const img = new window.Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return reject(new Error("No canvas context"));
+        ctx.drawImage(img, 0, 0);
+        resolve(canvas.toDataURL("image/png"));
+      };
+      img.onerror = () => reject(new Error("No se pudo cargar el logo"));
+      img.src = logo.src;
+    });
+
+    const doc = (
+      <CotizacionPdfDocument
+        logoDataUrl={logoDataUrl}
+        form={form}
+        derived={{
+          valorBienSinIva: derived.valorBienSinIva,
+          ivaBien: derived.ivaBien,
+          totalContrato: derived.totalContrato,
+          totalAnualizado: derived.totalAnualizado,
+          rentabilidadEconomica: derived.rentabilidadEconomica,
+          rentaMensual: derived.rentaMensual,
+          rentaConIva: derived.rentaConIva,
+          deposito: derived.deposito,
+          valorResidual: derived.valorResidual,
+          comisionApertura: derived.comisionApertura,
+          ivaComisionApertura: derived.ivaComisionApertura,
+          comisionAperturaConIva: derived.comisionAperturaConIva,
+          pagoInicialTotal: derived.pagoInicialTotal,
+          conceptos: derived.conceptos,
+        }}
+      />
+    );
+
+    await downloadPdf(
+      `Cotizacion-ArrendaCrece-${new Date().toISOString().slice(0, 10)}.pdf`,
+      doc,
+    );
+  };
+
   const guardar = () => {
     const payload = {
       version: 1,
@@ -474,6 +538,7 @@ export default function Home() {
           <div className="flex flex-wrap items-center justify-start gap-2 md:justify-end">
             <Button onClick={restablecer}>Restablecer</Button>
             <Button onClick={exportar}>Exportar JSON</Button>
+            <Button onClick={exportarPdf}>Exportar PDF</Button>
             <Button onClick={() => {}}>Recalcular</Button>
             <Button variant="primary" onClick={guardar}>
               Guardar cotización

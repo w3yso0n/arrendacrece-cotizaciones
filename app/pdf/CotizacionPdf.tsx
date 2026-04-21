@@ -9,6 +9,8 @@ import {
 } from "@react-pdf/renderer";
 import type { ReactElement } from "react";
 
+/* eslint-disable jsx-a11y/alt-text */
+
 type QuoteInput = {
   cliente: string;
   descripcionBien: string;
@@ -49,183 +51,368 @@ type Derived = {
   conceptos: ConceptRow[];
 };
 
-const BLUE_DARK = "#0b3b77";
-const BLUE_BG = "#d8e6f6";
-const BLUE_HEADER = "#0b1220";
-const WHITE = "#ffffff";
-const RED = "#c0392b";
+// ── PALETTE ─────────────────────────────────────────────────────
+const NAVY       = "#0B2545";
+const NAVY_MID   = "#1B4A87";
+const GOLD       = "#C9A84C";
+const GOLD_PALE  = "#F5EDD9";
+const BG_STRIPE  = "#EBF1FA";
+const WHITE      = "#FFFFFF";
+const TEXT_DESC  = "#3D5A80";
+const TEXT_NOTE  = "#607B96";
+const RED_NEG    = "#B91C1C";
+const BORDER     = "#C5D8EE";
+const PAGE_BG    = "#F7FAFD";
 
-const styles = StyleSheet.create({
+// horizontal padding for all content sections
+const CP = 26;
+
+// Cabecera PDF: ancho del banner en pt (Yoga + Image no resuelven bien width: "100%" aquí).
+const PDF_PAGE_W_PT = 595.28;
+const HEADER_INNER_W = PDF_PAGE_W_PT - CP * 2;
+const HEADER_DATE_RESERVE_W = 188;
+const HEADER_BANNER_W = Math.max(
+  200,
+  Math.floor(HEADER_INNER_W - 56 - 14 * 2 - HEADER_DATE_RESERVE_W),
+);
+
+// column widths for integration table (531 pt usable inside content)
+const COL_HASH      = 28;
+const COL_CONCEPTO  = 175;
+const COL_IMPORTES  = 108;
+const COL_IVA       = 105;
+const COL_TOTAL     = 115;
+
+// detail table columns
+const COL_LEFT  = 148;
+const COL_MID   = 130;
+// descCell: 531 - 148 - 130 = 253
+
+const S = StyleSheet.create({
   page: {
-    paddingTop: 28,
-    paddingBottom: 28,
-    paddingHorizontal: 32,
-    fontSize: 10,
-    fontFamily: "Helvetica",
-    color: "#0f172a",
-  },
-  row: { flexDirection: "row" },
-  header: { flexDirection: "row", justifyContent: "space-between" },
-  brandLeft: { flexDirection: "row", gap: 10, alignItems: "center" },
-  logo: { width: 58, height: 58 },
-  topRight: { alignItems: "flex-end" },
-  iconsRow: { flexDirection: "row", gap: 6, alignItems: "center" },
-  iconBox: {
-    width: 14,
-    height: 10,
-    borderWidth: 1,
-    borderColor: BLUE_DARK,
-    borderRadius: 2,
-  },
-  motto: {
-    marginTop: 6,
-    fontSize: 10,
-    fontStyle: "italic",
-    fontWeight: 700,
-    color: BLUE_DARK,
-  },
-  dateRight: { marginTop: 10, fontSize: 9, color: BLUE_DARK },
-  helloBlock: { marginTop: 10 },
-  helloName: { fontSize: 10, fontWeight: 700, color: BLUE_DARK },
-  helloText: { marginTop: 2, fontSize: 9, color: BLUE_DARK },
-
-  // ── INTEGRATION TABLE ──────────────────────────────────────────
-  integTitle: {
-    backgroundColor: BLUE_HEADER,
-    color: WHITE,
-    textAlign: "center",
-    fontSize: 10,
-    fontWeight: 700,
-    paddingVertical: 5,
-  },
-  integHeaderRow: {
-    flexDirection: "row",
-    backgroundColor: BLUE_DARK,
-  },
-  integHeaderCell: {
-    color: WHITE,
-    fontSize: 8.5,
-    fontWeight: 700,
-    textAlign: "center",
-    paddingVertical: 5,
-    paddingHorizontal: 4,
-  },
-  integDataRow: {
-    flexDirection: "row",
-    borderTopWidth: 1,
-    borderTopColor: BLUE_DARK,
-  },
-  integCell: {
-    fontSize: 8.5,
-    paddingVertical: 5,
-    paddingHorizontal: 4,
-    textAlign: "center",
-    color: BLUE_DARK,
-  },
-  integCellBold: {
-    fontSize: 8.5,
-    paddingVertical: 5,
-    paddingHorizontal: 4,
-    textAlign: "center",
-    color: BLUE_DARK,
-    fontWeight: 700,
-  },
-  integRedCell: {
-    fontSize: 8.5,
-    paddingVertical: 5,
-    paddingHorizontal: 4,
-    textAlign: "center",
-    color: RED,
-    fontWeight: 700,
-  },
-  integSeparator: {
-    borderTopWidth: 4,
-    borderTopColor: WHITE,
-  },
-
-  // column widths for integration table (total ~531 pt usable)
-  colHash: { width: 30 },
-  colConcepto: { width: 170 },
-  colImportes: { width: 110 },
-  colIva: { width: 110 },
-  colTotal: { width: 111 },
-
-  integNote: {
+    paddingTop: 0,
+    paddingBottom: 0,
+    paddingHorizontal: 0,
     fontSize: 7.5,
-    color: BLUE_DARK,
-    fontStyle: "italic",
-    textAlign: "center",
-    marginTop: 3,
+    fontFamily: "Helvetica",
+    backgroundColor: PAGE_BG,
+    color: NAVY,
   },
 
-  // ── DETAIL TABLE ───────────────────────────────────────────────
-  tableWrap: {
-    marginTop: 10,
-    borderWidth: 1,
-    borderColor: BLUE_DARK,
+  // ── TOP ACCENT ──────────────────────────────────────────────
+  topAccent: { height: 4, backgroundColor: GOLD },
+
+  // ── HEADER BAND ─────────────────────────────────────────────
+  headerBand: {
+    backgroundColor: WHITE,
+    paddingTop: 8,
+    paddingBottom: 8,
+    paddingHorizontal: CP,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
-  leftCell: {
-    width: 190,
-    backgroundColor: BLUE_BG,
-    paddingVertical: 8,
-    paddingHorizontal: 8,
-    borderRightWidth: 1,
-    borderRightColor: BLUE_DARK,
+  headerLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    flexGrow: 1,
+    flexShrink: 0,
+    marginRight: 14,
+  },
+  logo: { width: 56, height: 56, objectFit: "contain", flexShrink: 0 },
+  bannerWrap: {
+    width: HEADER_BANNER_W,
+    height: 56,
     justifyContent: "center",
   },
-  midCell: {
-    width: 140,
-    backgroundColor: BLUE_BG,
-    paddingVertical: 8,
-    paddingHorizontal: 8,
-    borderRightWidth: 1,
-    borderRightColor: BLUE_DARK,
+  banner: {
+    width: HEADER_BANNER_W,
+    height: 56,
+    objectFit: "contain",
+    objectPosition: "left",
+  },
+  headerRight: { alignItems: "flex-end", flexShrink: 0 },
+  dateLabel: {
+    fontSize: 6,
+    color: NAVY_MID,
+    fontWeight: 700,
+    textTransform: "uppercase",
+    letterSpacing: 1.2,
+  },
+  dateValue: { fontSize: 7, color: NAVY, marginTop: 2, textAlign: "right" },
+
+  // ── GOLD LINE ───────────────────────────────────────────────
+  goldLine: { height: 2, backgroundColor: GOLD },
+
+  // ── QUOTE TITLE BAND ────────────────────────────────────────
+  titleBand: {
+    backgroundColor: NAVY_MID,
+    paddingVertical: 4,
+    paddingHorizontal: CP,
+    flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
   },
+  titleText: {
+    fontSize: 9,
+    fontWeight: 700,
+    color: WHITE,
+    letterSpacing: 2.1,
+    textAlign: "center",
+    textTransform: "uppercase",
+  },
+
+  // ── CONTENT AREA ────────────────────────────────────────────
+  content: { paddingHorizontal: CP, paddingTop: 7, paddingBottom: 0 },
+
+  // ── CLIENT CARD ─────────────────────────────────────────────
+  clientCard: {
+    backgroundColor: WHITE,
+    borderLeftWidth: 4,
+    borderLeftColor: GOLD,
+    borderWidth: 1,
+    borderColor: BORDER,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    marginBottom: 8,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  clientLeft: { flexShrink: 1, minWidth: 0 },
+  clientSmallLabel: {
+    fontSize: 6.5,
+    color: TEXT_NOTE,
+    fontWeight: 700,
+    textTransform: "uppercase",
+    letterSpacing: 0.9,
+  },
+  clientName: {
+    fontSize: 10.5,
+    fontWeight: 700,
+    color: NAVY,
+    marginTop: 2,
+  },
+  clientSub: {
+    fontSize: 6.8,
+    color: TEXT_DESC,
+    marginTop: 2,
+    fontStyle: "italic",
+    lineHeight: 1.35,
+  },
+  clientBadge: {
+    backgroundColor: NAVY,
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    alignItems: "center",
+    flexShrink: 0,
+    marginLeft: 10,
+    borderLeftWidth: 2,
+    borderLeftColor: GOLD,
+  },
+  clientBadgeText: {
+    fontSize: 6.3,
+    color: GOLD,
+    fontWeight: 700,
+    textTransform: "uppercase",
+    letterSpacing: 1.2,
+  },
+
+  // ── INTEGRATION TABLE ────────────────────────────────────────
+  tableWrap: {
+    borderWidth: 1,
+    borderColor: BORDER,
+    overflow: "hidden",
+    marginBottom: 2,
+  },
+  tableTitleBar: {
+    backgroundColor: NAVY,
+    paddingVertical: 4,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  tableTitleAccent: {
+    width: 3,
+    height: 14,
+    backgroundColor: GOLD,
+    marginRight: 9,
+  },
+  tableTitleText: {
+    fontSize: 7,
+    fontWeight: 700,
+    color: WHITE,
+    textTransform: "uppercase",
+    letterSpacing: 1.8,
+    flexGrow: 1,
+  },
+  tableTitleDeco: {
+    width: 28,
+    height: 1,
+    backgroundColor: GOLD,
+    opacity: 0.6,
+  },
+  integSubHeader: {
+    flexDirection: "row",
+    backgroundColor: NAVY_MID,
+    borderTopWidth: 1,
+    borderTopColor: GOLD,
+    borderBottomWidth: 1,
+    borderBottomColor: NAVY,
+  },
+  integSubHeaderCell: {
+    color: WHITE,
+    fontSize: 6.3,
+    fontWeight: 700,
+    textAlign: "center",
+    paddingVertical: 3,
+    paddingHorizontal: 4,
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+  },
+  integRow: {
+    flexDirection: "row",
+    borderTopWidth: 1,
+    borderTopColor: BORDER,
+  },
+  integCell: {
+    fontSize: 7.4,
+    paddingVertical: 3,
+    paddingHorizontal: 6,
+    textAlign: "center",
+    color: NAVY,
+  },
+  integCellBold: {
+    fontSize: 7.4,
+    paddingVertical: 3,
+    paddingHorizontal: 6,
+    textAlign: "center",
+    color: NAVY_MID,
+    fontWeight: 700,
+  },
+  integCellRed: {
+    fontSize: 7.4,
+    paddingVertical: 3,
+    paddingHorizontal: 6,
+    textAlign: "center",
+    color: RED_NEG,
+    fontWeight: 700,
+  },
+  integSep: {
+    height: 3,
+    backgroundColor: BG_STRIPE,
+    borderTopWidth: 1,
+    borderTopColor: BORDER,
+  },
+
+  integNote: {
+    fontSize: 6,
+    color: TEXT_NOTE,
+    fontStyle: "italic",
+    textAlign: "right",
+    marginBottom: 5,
+    paddingRight: 1,
+  },
+
+  // ── DETAIL TABLE ────────────────────────────────────────────
+  detailRow: {
+    flexDirection: "row",
+    borderTopWidth: 1,
+    borderTopColor: BORDER,
+  },
+  leftCell: {
+    width: COL_LEFT,
+    backgroundColor: NAVY,
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    justifyContent: "center",
+    borderRightWidth: 2,
+    borderRightColor: GOLD,
+  },
+  midCell: {
+    width: COL_MID,
+    backgroundColor: BG_STRIPE,
+    paddingVertical: 5,
+    paddingHorizontal: 8,
+    justifyContent: "center",
+    alignItems: "center",
+    borderRightWidth: 1,
+    borderRightColor: BORDER,
+  },
   descCell: {
-    width: 201,
-    paddingVertical: 8,
+    width: 253,
+    paddingVertical: 5,
     paddingHorizontal: 10,
     backgroundColor: WHITE,
     justifyContent: "center",
   },
-  cellTextLabel: { fontSize: 8.5, fontWeight: 700, color: BLUE_DARK },
-  cellTextValue: { fontSize: 8.5, fontWeight: 700, color: BLUE_DARK },
-  descText: { fontSize: 7.6, color: BLUE_DARK, lineHeight: 1.2 },
-  rowBorder: {
-    borderTopWidth: 1,
-    borderTopColor: BLUE_DARK,
+  labelText: {
+    fontSize: 6.6,
+    fontWeight: 700,
+    color: GOLD,
+    letterSpacing: 0.2,
+  },
+  valueText: {
+    fontSize: 7.5,
+    fontWeight: 700,
+    color: NAVY,
+  },
+  descText: {
+    fontSize: 6.1,
+    color: TEXT_DESC,
+    lineHeight: 1.32,
   },
 
-  footNote: {
-    marginTop: 10,
-    fontSize: 8,
-    color: BLUE_DARK,
-    textAlign: "center",
+  // ── FOOTNOTE BOX ────────────────────────────────────────────
+  footNoteBox: {
+    marginTop: 5,
+    paddingVertical: 5,
+    paddingHorizontal: 12,
+    backgroundColor: GOLD_PALE,
+    borderLeftWidth: 3,
+    borderLeftColor: GOLD,
+    marginBottom: 6,
+  },
+  footNoteText: {
+    fontSize: 6.2,
+    color: TEXT_DESC,
     fontStyle: "italic",
+    lineHeight: 1.4,
   },
-  bottomBar: {
-    marginTop: 10,
-    backgroundColor: BLUE_DARK,
+
+  // ── FOOTER BAND ─────────────────────────────────────────────
+  footerBand: {
+    backgroundColor: NAVY,
+    paddingVertical: 6,
+    paddingHorizontal: CP,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  footerWebsite: {
+    fontSize: 14,
+    fontWeight: 700,
+    color: GOLD,
+  },
+  footerRight: { alignItems: "flex-end" },
+  footerPhone: {
+    fontSize: 7.5,
     color: WHITE,
-    paddingVertical: 10,
-    textAlign: "center",
-    fontSize: 16,
     fontWeight: 700,
   },
-  bottomBold: {
-    marginTop: 10,
-    textAlign: "center",
-    fontSize: 12,
-    fontWeight: 700,
-    color: BLUE_DARK,
+  footerUnderline: {
+    height: 1,
+    backgroundColor: GOLD,
+    width: 200,
+    marginTop: 3,
+    alignSelf: "flex-end",
   },
-  bottomSmall: {
-    marginTop: 6,
-    textAlign: "center",
-    fontSize: 8,
-    color: BLUE_DARK,
+  footerAddress: {
+    fontSize: 6,
+    color: "#7EA8CC",
+    marginTop: 3,
+    textAlign: "right",
   },
 });
 
@@ -259,10 +446,12 @@ export function CotizacionPdfDocument({
   form,
   derived,
   logoDataUrl,
+  headerDataUrl,
 }: {
   form: QuoteInput;
   derived: Derived;
   logoDataUrl: string;
+  headerDataUrl: string;
 }): ReactElement {
   Font.registerHyphenationCallback((word) => {
     if (word.length <= 14) return [word];
@@ -278,56 +467,50 @@ export function CotizacionPdfDocument({
     day: "numeric",
   });
 
-  // IVA rate from form
   const ivaPct = form.ivaPct / 100;
 
-  // Pago inicial = comisión apertura con IVA + depósito + ratificación con IVA
   const pagoInicialImporte =
     derived.comisionApertura + derived.deposito + form.ratificacion;
-  const pagoInicialIva = derived.ivaComisionApertura; // IVA on comision only
+  const pagoInicialIva = derived.ivaComisionApertura;
   const pagoInicialTotal = pagoInicialImporte + pagoInicialIva;
 
-  // Renta mensual IVA
-  const rentaIva = derived.rentaMensual * ivaPct;
+  const rentaIva   = derived.rentaMensual * ivaPct;
   const rentaTotal = derived.rentaMensual + rentaIva;
 
-  // Seguro
-  const seguroIva = form.seguroMensual * ivaPct;
+  const seguroIva   = form.seguroMensual * ivaPct;
   const seguroTotal = form.seguroMensual + seguroIva;
 
-  // GPS mensual
-  const gpsIva = form.gpsMensual * ivaPct;
+  const gpsIva   = form.gpsMensual * ivaPct;
   const gpsTotal = form.gpsMensual + gpsIva;
 
-  // Valor residual IVA (pago por compra)
-  const vrIva = derived.valorResidual * ivaPct;
+  const vrIva   = derived.valorResidual * ivaPct;
   const vrTotal = derived.valorResidual + vrIva;
 
   const integRows: IntegRow[] = [
     {
       hash: "1",
-      concepto: "Pago Inicial",
+      concepto: "Pago Inicial (sin IVA)",
       importe: pagoInicialImporte,
       iva: pagoInicialIva,
       total: pagoInicialTotal,
     },
     {
       hash: String(form.plazoMeses),
-      concepto: "Renta Mensual",
+      concepto: "Renta Mensual (sin IVA)",
       importe: derived.rentaMensual,
       iva: rentaIva,
       total: rentaTotal,
     },
     {
       hash: "",
-      concepto: "Póliza de Seguro Mensual",
+      concepto: "Póliza de Seguro Mensual (sin IVA)",
       importe: form.seguroMensual,
       iva: seguroIva,
       total: seguroTotal,
     },
     {
       hash: String(form.plazoMeses),
-      concepto: "Equipo GPS",
+      concepto: "Equipo GPS (sin IVA)",
       importe: form.gpsMensual,
       iva: gpsIva,
       total: gpsTotal,
@@ -335,7 +518,7 @@ export function CotizacionPdfDocument({
     { hash: "", concepto: "", importe: null, iva: null, total: null, isSeparator: true },
     {
       hash: "1",
-      concepto: "Devolución Depósito en Garantía",
+      concepto: "Devolución Depósito (sin IVA)",
       importe: -derived.deposito,
       iva: null,
       total: -derived.deposito,
@@ -344,7 +527,7 @@ export function CotizacionPdfDocument({
     { hash: "", concepto: "", importe: null, iva: null, total: null, isSeparator: true },
     {
       hash: "1",
-      concepto: "Pago por Compra (estimado)",
+      concepto: "Pago por Compra (sin IVA)",
       importe: derived.valorResidual,
       iva: vrIva,
       total: vrTotal,
@@ -363,12 +546,12 @@ export function CotizacionPdfDocument({
       desc: "",
     },
     {
-      label: "VALOR ACTIVO (IVA\nINCLUIDO):",
+      label: "VALOR ACTIVO\n(IVA INCLUIDO):",
       mid: mxn(form.valorBienConIva),
       desc: "Precio del activo elegido por el cliente, de acuerdo a factura emitida por el proveedor. El precio mencionado podría reducirse en caso de anticipo.",
     },
     {
-      label: "APERTURA DE CRÉDITO:",
+      label: "APERTURA DE CRÉDITO\n(SIN IVA):",
       mid: `${form.comisionAperturaPct.toFixed(2)}%\n${mxn(derived.comisionApertura)}`,
       desc: "Comisión de apertura pagadera al inicio de la operación (el importe NO incluye IVA).",
     },
@@ -378,192 +561,208 @@ export function CotizacionPdfDocument({
       desc: "Plazo durante el que se otorga el uso del equipo arrendado, bajo condiciones mencionadas en contrato.",
     },
     {
-      label: "RENTA MENSUAL FIJA:",
+      label: "RENTA MENSUAL FIJA\n(SIN IVA):",
       mid: mxn(derived.rentaMensual),
       desc: "Cantidad monetaria correspondiente a los pagos a realizar durante el plazo establecido (el importe NO incluye IVA).",
     },
     {
-      label: "DEPÓSITO EN GARANTÍA:",
+      label: "DEPÓSITO EN GARANTÍA\n(SIN IVA):",
       mid: mxn(derived.deposito),
       desc: "Cantidad monetaria por concepto de garantía por cualquier daño o deuda relativa referente al activo en arrendamiento. Este importe será devuelto íntegramente al arrendatario una vez concluido el plazo acordado siempre y cuando se hayan cumplido todas las obligaciones en contrato.",
     },
     {
-      label: "VALOR RESIDUAL:",
+      label: "VALOR RESIDUAL\n(SIN IVA):",
       mid: `${form.valorResidualPct.toFixed(2)}%\n${mxn(derived.valorResidual)}`,
       desc: "Cantidad monetaria estimada del valor del activo arrendado en el mercado al término del plazo contratado (el importe NO incluye IVA).",
     },
     {
-      label: "SEGUROS:",
+      label: "SEGUROS\n(SIN IVA):",
       mid: mxn(form.seguroMensual),
-      desc: "Serán por cuenta exclusiva del arrendatario el estado (daños, destrucción, pérdida, riesgos, robo o cualquier índole en general) que sufra el equipo arrendado, por lo que se deberá contar con un seguro amplio (siendo beneficiaria la arrendadora), durante la totalidad del plazo del arrendamiento.",
+      desc: "Serán por cuenta exclusiva del arrendatario el estado (daños, destrucción, pérdida, riesgos, robo o cualquier índole en general) que sufra el equipo arrendado, por lo que se deberá contar con un seguro amplio (siendo beneficiaria la arrendadora), durante la totalidad del plazo del arrendamiento (importe SIN IVA).",
     },
     {
-      label: "RATIFICACIÓN DE CONTRATO:",
+      label: "RATIFICACIÓN DE\nCONTRATO (SIN IVA):",
       mid: mxn(form.ratificacion),
       desc: "Gasto de ratificación de las firmas en contratos, por fedatario público (el importe NO incluye IVA).",
     },
     {
-      label: "EQUIPO GPS:",
+      label: "EQUIPO GPS\n(SIN IVA):",
       mid: mxn(form.gpsMensual),
       desc: "Cantidad monetaria correspondiente a los pagos a realizar durante el plazo establecido por renta de equipo de GPS (el importe NO incluye IVA).",
     },
     {
       label: "DERECHO PREFERENTE:",
       mid: form.cliente || "—",
-      desc: "El arrendatario tendrá derecho preferente para adquirir, en su valor de mercado, el activo arrendado mediante: 1) Pago al contado; 2) Firma de un contrato de compra-venta a plazos ó 3) firma de un nuevo contrato de arrendamiento, siempre y cuando el plazo arrendado haya concluido y el arrendatario se encuentre al corriente en el cumplimiento de todas sus obligaciones en contrato.",
+      desc: "El arrendatario tendrá derecho preferente para adquirir, en su valor de mercado, el activo arrendado mediante: 1) Pago al contado; 2) Firma de un contrato de compra-venta a plazos ó 3) Firma de un nuevo contrato de arrendamiento, siempre y cuando el plazo arrendado haya concluido y el arrendatario se encuentre al corriente en el cumplimiento de todas sus obligaciones en contrato.",
     },
   ];
 
   return (
     <Document>
-      <Page size="A4" style={styles.page}>
-        {/* ── HEADER ── */}
-        <View style={styles.header}>
-          <View style={styles.brandLeft}>
-            <Image src={logoDataUrl} style={styles.logo} />
-          </View>
-          <View style={styles.topRight}>
-            <View style={styles.iconsRow}>
-              <View style={styles.iconBox} />
-              <View style={styles.iconBox} />
-              <View style={styles.iconBox} />
-              <View style={styles.iconBox} />
-              <View style={styles.iconBox} />
-              <View style={styles.iconBox} />
+      <Page size="A4" style={S.page}>
+
+        {/* ── TOP GOLD ACCENT ── */}
+        <View style={S.topAccent} />
+
+        {/* ── HEADER BAND ── */}
+        <View style={S.headerBand}>
+          <View style={S.headerLeft}>
+            <Image src={logoDataUrl} style={S.logo} />
+            <View style={S.bannerWrap}>
+              <Image src={headerDataUrl} style={S.banner} />
             </View>
-            <Text style={styles.motto}>"Impulsamos Empresas y Empresarios"</Text>
-            <Text style={styles.dateRight}>{dateStr}</Text>
+          </View>
+          <View style={S.headerRight}>
+            <Text style={S.dateLabel}>Fecha de emisión</Text>
+            <Text style={S.dateValue}>{dateStr}</Text>
           </View>
         </View>
 
-        {/* ── GREETING ── */}
-        <View style={styles.helloBlock}>
-          <Text style={styles.helloName}>{form.cliente || "—"}</Text>
-          <Text style={styles.helloText}>
-            Esperando se encuentre bien, le anexo propuesta para arrendamiento puro…
-          </Text>
+        {/* ── GOLD LINE ── */}
+        <View style={S.goldLine} />
+
+        {/* ── QUOTE TITLE ── */}
+        <View style={S.titleBand}>
+          <Text style={S.titleText}>Cotización de Arrendamiento Puro</Text>
         </View>
 
-        {/* ── INTEGRATION TABLE ── */}
-        <View style={{ marginTop: 12, borderWidth: 1, borderColor: BLUE_DARK }}>
-          {/* Title */}
-          <Text style={styles.integTitle}>INTEGRACIÓN DEL ARRENDAMIENTO</Text>
+        {/* ── CONTENT ── */}
+        <View style={S.content}>
 
-          {/* Header row */}
-          <View style={styles.integHeaderRow}>
-            <Text style={[styles.integHeaderCell, styles.colHash]}>#</Text>
-            <Text style={[styles.integHeaderCell, styles.colConcepto]}>CONCEPTOS</Text>
-            <Text style={[styles.integHeaderCell, styles.colImportes]}>IMPORTES</Text>
-            <Text style={[styles.integHeaderCell, styles.colIva]}>IVA</Text>
-            <Text style={[styles.integHeaderCell, styles.colTotal]}>TOTAL</Text>
+          {/* CLIENT CARD */}
+          <View style={S.clientCard}>
+            <View style={S.clientLeft}>
+              <Text style={S.clientSmallLabel}>Propuesta para:</Text>
+              <Text style={S.clientName}>{form.cliente || "—"}</Text>
+              <Text style={S.clientSub}>
+                Esperando se encuentre bien, le anexamos la presente propuesta para arrendamiento puro.
+              </Text>
+            </View>
+            <View style={S.clientBadge}>
+              <Text style={S.clientBadgeText}>ARRENDAMIENTO</Text>
+              <Text style={[S.clientBadgeText, { marginTop: 2 }]}>PURO</Text>
+            </View>
           </View>
 
-          {/* Data rows */}
-          {integRows.map((r, idx) => {
-            if (r.isSeparator) {
+          {/* ── INTEGRATION TABLE ── */}
+          <View style={S.tableWrap}>
+            {/* Title row */}
+            <View style={S.tableTitleBar}>
+              <View style={S.tableTitleAccent} />
+              <Text style={S.tableTitleText}>Integración del Arrendamiento</Text>
+              <View style={S.tableTitleDeco} />
+            </View>
+
+            {/* Column headers */}
+            <View style={S.integSubHeader}>
+              <Text style={[S.integSubHeaderCell, { width: COL_HASH }]}>#</Text>
+              <Text style={[S.integSubHeaderCell, { width: COL_CONCEPTO }]}>Concepto</Text>
+              <Text style={[S.integSubHeaderCell, { width: COL_IMPORTES }]}>Importe (sin IVA)</Text>
+              <Text style={[S.integSubHeaderCell, { width: COL_IVA }]}>IVA</Text>
+              <Text style={[S.integSubHeaderCell, { width: COL_TOTAL }]}>Total (con IVA)</Text>
+            </View>
+
+            {/* Data rows */}
+            {integRows.map((r, idx) => {
+              if (r.isSeparator) {
+                return <View key={idx} style={S.integSep} />;
+              }
+              const cell     = r.isNegative ? S.integCellRed : S.integCell;
+              const hashCell = r.isNegative ? S.integCellRed : S.integCellBold;
               return (
                 <View
                   key={idx}
                   style={[
-                    styles.integDataRow,
-                    { backgroundColor: "#f0f4fa", height: 4 },
-                  ]}
-                />
-              );
-            }
-            const cellStyle = r.isNegative ? styles.integRedCell : styles.integCell;
-            const hashCellStyle = r.isNegative ? styles.integRedCell : styles.integCellBold;
-            return (
-              <View
-                key={idx}
-                style={[
-                  styles.integDataRow,
-                  { backgroundColor: idx % 2 === 0 ? BLUE_BG : WHITE },
-                ]}
-              >
-                <Text style={[hashCellStyle, styles.colHash]}>{r.hash}</Text>
-                <Text
-                  style={[
-                    r.isNegative ? styles.integRedCell : styles.integCell,
-                    styles.colConcepto,
-                    { textAlign: "center" },
+                    S.integRow,
+                    { backgroundColor: idx % 2 === 0 ? BG_STRIPE : WHITE },
                   ]}
                 >
-                  {r.concepto}
-                </Text>
-                <Text style={[cellStyle, styles.colImportes]}>
-                  {r.importe !== null
-                    ? r.isNegative
-                      ? "-" + num(Math.abs(r.importe))
-                      : num(r.importe)
-                    : ""}
-                </Text>
-                <Text style={[cellStyle, styles.colIva]}>
-                  {r.iva !== null ? num(r.iva) : ""}
-                </Text>
-                <Text style={[cellStyle, styles.colTotal]}>
-                  {r.total !== null
-                    ? r.isNegative
-                      ? "-" + num(Math.abs(r.total))
-                      : num(r.total)
-                    : ""}
-                </Text>
-              </View>
-            );
-          })}
-        </View>
+                  <Text style={[hashCell, { width: COL_HASH }]}>{r.hash}</Text>
+                  <Text style={[cell, { width: COL_CONCEPTO, textAlign: "center" }]}>
+                    {r.concepto}
+                  </Text>
+                  <Text style={[cell, { width: COL_IMPORTES }]}>
+                    {r.importe !== null
+                      ? r.isNegative
+                        ? "-" + num(Math.abs(r.importe))
+                        : num(r.importe)
+                      : ""}
+                  </Text>
+                  <Text style={[cell, { width: COL_IVA }]}>
+                    {r.iva !== null ? num(r.iva) : ""}
+                  </Text>
+                  <Text style={[cell, { width: COL_TOTAL }]}>
+                    {r.total !== null
+                      ? r.isNegative
+                        ? "-" + num(Math.abs(r.total))
+                        : num(r.total)
+                      : ""}
+                  </Text>
+                </View>
+              );
+            })}
+          </View>
 
-        {/* Integration note */}
-        <Text style={styles.integNote}>
-          *El monto total mencionado como Pago Inicial no considera montos por concepto de anticipos.
-        </Text>
+          <Text style={S.integNote}>
+            * El monto total del Pago Inicial no considera montos por concepto de anticipos.
+          </Text>
 
-        {/* ── DETAIL TABLE ── */}
-        <View style={styles.tableWrap}>
-          {detailRows.map((r, idx) => (
-            <View
-              key={r.label}
-              style={[styles.row, ...(idx === 0 ? [] : [styles.rowBorder])]}
-            >
-              <View style={styles.leftCell}>
-                <Text style={styles.cellTextLabel} wrap>
-                  {r.label}
-                </Text>
-              </View>
-              <View style={styles.midCell}>
-                {String(r.mid)
-                  .split("\n")
-                  .map((line, i) => (
-                    <Text key={i} style={styles.cellTextValue} wrap>
-                      {line}
-                    </Text>
-                  ))}
-              </View>
-              <View style={styles.descCell}>
-                <Text style={styles.descText} wrap>
-                  {r.desc || " "}
-                </Text>
-              </View>
+          {/* ── DETAIL TABLE ── */}
+          <View style={S.tableWrap}>
+            {/* Title row */}
+            <View style={S.tableTitleBar}>
+              <View style={S.tableTitleAccent} />
+              <Text style={S.tableTitleText}>Condiciones del Arrendamiento</Text>
+              <View style={S.tableTitleDeco} />
             </View>
-          ))}
+
+            {detailRows.map((r, idx) => (
+              <View
+                key={r.label}
+                style={[S.detailRow, idx === 0 ? { borderTopWidth: 0 } : {}]}
+              >
+                <View style={S.leftCell}>
+                  {r.label.split("\n").map((line, i) => (
+                    <Text key={i} style={S.labelText}>{line}</Text>
+                  ))}
+                </View>
+                <View style={S.midCell}>
+                  {String(r.mid).split("\n").map((line, i) => (
+                    <Text key={i} style={S.valueText}>{line}</Text>
+                  ))}
+                </View>
+                <View style={S.descCell}>
+                  <Text style={S.descText}>{r.desc || " "}</Text>
+                </View>
+              </View>
+            ))}
+          </View>
+
+          {/* ── FOOTNOTES ── */}
+          <View style={S.footNoteBox}>
+            <Text style={S.footNoteText}>
+              * En equipos de transporte, las placas y tenencia vehicular van por cuenta del cliente.{"\n"}
+              * Esta cotización está sujeta a su aprobación y los importes pueden variar sin previo aviso.
+            </Text>
+          </View>
+
         </View>
 
-        {/* ── FOOTNOTES ── */}
-        <Text style={styles.footNote}>
-          *En equipos de transporte, las placas y tenencia vehicular van por cuenta del
-          cliente.{"\n"}
-          *Esta cotización está sujeta a su aprobación y los importes pueden variar sin
-          previo aviso.
-        </Text>
+        {/* Spacer to push footer down */}
+        <View style={{ flexGrow: 1 }} />
 
-        {/* ── FOOTER ── */}
-        <Text style={styles.bottomBar}>arrendacrece.com</Text>
-        <Text style={styles.bottomBold}>
-          CUALQUIER DUDA ESCRÍBENOS POR WHATSAPP +52 (33) 1840 0000
-        </Text>
-        <Text style={styles.bottomSmall}>
-          Efraín González Luna 2594 Col. Arcos Sur C.P. 44130 Guadalajara, Jal., MX
-        </Text>
+        {/* ── FOOTER BAND ── */}
+        <View style={S.footerBand}>
+          <Text style={S.footerWebsite}>arrendacrece.com</Text>
+          <View style={S.footerRight}>
+            <Text style={S.footerPhone}>WhatsApp  +52 (33) 1840 0000</Text>
+            <View style={S.footerUnderline} />
+            <Text style={S.footerAddress}>
+              Efraín González Luna 2594, Col. Arcos Sur, C.P. 44130, Guadalajara, Jal., MX
+            </Text>
+          </View>
+        </View>
+
       </Page>
     </Document>
   );

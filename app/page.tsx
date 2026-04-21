@@ -1,8 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useMemo, useState } from "react";
-import logo from "../logo.png";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CotizacionPdfDocument } from "./pdf/CotizacionPdf";
 import type { DocumentProps } from "@react-pdf/renderer";
 
@@ -107,20 +106,6 @@ function formatTasaImplicitaPctFull(value: number): string {
 
 const EPS_IMPLICITA_AUTO = 1e-9;
 
-function downloadJson(filename: string, data: unknown) {
-  const blob = new Blob([JSON.stringify(data, null, 2)], {
-    type: "application/json;charset=utf-8",
-  });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-}
-
 async function downloadPdf(
   filename: string,
   doc: React.ReactElement<DocumentProps>,
@@ -135,6 +120,15 @@ async function downloadPdf(
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+}
+
+function downloadPng(filename: string, dataUrl: string) {
+  const a = document.createElement("a");
+  a.href = dataUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
 }
 
 function cardClassName(variant: "white" | "blue" = "white") {
@@ -158,6 +152,7 @@ function Input({
   selectOnFocus,
   onBlur,
   onFocus,
+  prominent,
 }: {
   label: string;
   value: string;
@@ -172,11 +167,25 @@ function Input({
   selectOnFocus?: boolean;
   onBlur?: () => void;
   onFocus?: React.FocusEventHandler<HTMLInputElement>;
+  /** Campos editables: más contraste y área táctil. */
+  prominent?: boolean;
 }) {
+  const shellClass = readOnly
+    ? "flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-2 ring-1 ring-slate-200/90"
+    : prominent
+      ? "flex items-center gap-2 rounded-xl bg-white px-3 py-2.5 shadow-sm ring-2 ring-sky-200/70 focus-within:ring-2 focus-within:ring-sky-500"
+      : "flex items-center gap-2 rounded-xl bg-white px-3 py-2 ring-1 ring-slate-200 focus-within:ring-2 focus-within:ring-sky-500";
+
   return (
     <label className="flex flex-col gap-2">
-      <span className="text-xs font-semibold text-slate-600">{label}</span>
-      <div className="flex items-center gap-2 rounded-xl bg-white px-3 py-2 ring-1 ring-slate-200 focus-within:ring-2 focus-within:ring-sky-500">
+      <span
+        className={`text-xs font-semibold ${
+          readOnly ? "text-slate-500" : "text-slate-700"
+        }`}
+      >
+        {label}
+      </span>
+      <div className={shellClass}>
         {prefix ? (
           <span className="text-xs font-semibold text-slate-500">{prefix}</span>
         ) : null}
@@ -258,17 +267,21 @@ export default function Home() {
   );
   const [efectivaFocused, setEfectivaFocused] = useState(false);
   const [implicitFocused, setImplicitFocused] = useState(false);
+  const approvalRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPlazoDraft(String(form.plazoMeses));
   }, [form.plazoMeses]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!efectivaFocused) setEfectivaDraft(String(form.tasaEfectivaPct));
   }, [form.tasaEfectivaPct, efectivaFocused]);
 
   useEffect(() => {
     if (!implicitFocused) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setImplicitDraft(formatTasaImplicitaPctFull(form.tasaImplicitaPct));
     }
   }, [form.tasaImplicitaPct, implicitFocused]);
@@ -435,60 +448,33 @@ export default function Home() {
     };
   }, [form]);
 
-  const exportar = () => {
-    const payload = {
-      version: 1,
-      generatedAt: new Date().toISOString(),
-      input: form,
-      derived: {
-        ivaBien: derived.ivaBien,
-        valorConIva: derived.valorConIva,
-        valorBienSinIva: derived.valorBienSinIva,
-        deposito: derived.deposito,
-        rentaConIva: derived.rentaConIva,
-        comisionApertura: derived.comisionApertura,
-        valorResidual: derived.valorResidual,
-        rentaMensual: derived.rentaMensual,
-        tasaImplicitaPct: form.tasaImplicitaPct,
-        ratificacion: form.ratificacion,
-        pagoInicial: {
-          importe: derived.pagoInicialImporte,
-          iva: derived.pagoInicialIva,
-          total: derived.pagoInicialTotal,
-        },
-        totales: derived.totales,
-        totalContrato: derived.totalContrato,
-        totalAnualizado: derived.totalAnualizado,
-        rentabilidadEconomica: derived.rentabilidadEconomica,
-      },
-      conceptos: derived.conceptos,
-    };
-    downloadJson(
-      `cotizacion-${new Date().toISOString().slice(0, 10)}.json`,
-      payload,
-    );
-  };
-
   const exportarPdf = async () => {
-    const logoDataUrl = await new Promise<string>((resolve, reject) => {
-      const img = new window.Image();
-      img.crossOrigin = "anonymous";
-      img.onload = () => {
-        const canvas = document.createElement("canvas");
-        canvas.width = img.naturalWidth;
-        canvas.height = img.naturalHeight;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return reject(new Error("No canvas context"));
-        ctx.drawImage(img, 0, 0);
-        resolve(canvas.toDataURL("image/png"));
-      };
-      img.onerror = () => reject(new Error("No se pudo cargar el logo"));
-      img.src = logo.src;
-    });
+    const toDataUrl = (src: string) =>
+      new Promise<string>((resolve, reject) => {
+        const img = new window.Image();
+        img.crossOrigin = "anonymous";
+        img.onload = () => {
+          const canvas = document.createElement("canvas");
+          canvas.width = img.naturalWidth;
+          canvas.height = img.naturalHeight;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) return reject(new Error("No canvas context"));
+          ctx.drawImage(img, 0, 0);
+          resolve(canvas.toDataURL("image/png"));
+        };
+        img.onerror = () => reject(new Error(`No se pudo cargar la imagen: ${src}`));
+        img.src = src;
+      });
+
+    const [logoDataUrl, headerDataUrl] = await Promise.all([
+      toDataUrl("/logo.png"),
+      toDataUrl("/header.png"),
+    ]);
 
     const doc = (
       <CotizacionPdfDocument
         logoDataUrl={logoDataUrl}
+        headerDataUrl={headerDataUrl}
         form={form}
         derived={{
           valorBienSinIva: derived.valorBienSinIva,
@@ -512,6 +498,21 @@ export default function Home() {
     await downloadPdf(
       `Cotizacion-ArrendaCrece-${new Date().toISOString().slice(0, 10)}.pdf`,
       doc,
+    );
+  };
+
+  const exportarPng = async () => {
+    const node = approvalRef.current;
+    if (!node) return;
+    const mod = await import("html-to-image");
+    const dataUrl = await mod.toPng(node, {
+      cacheBust: true,
+      backgroundColor: "#ffffff",
+      pixelRatio: 2,
+    });
+    downloadPng(
+      `Aprobacion-Credito-ArrendaCrece-${new Date().toISOString().slice(0, 10)}.png`,
+      dataUrl,
     );
   };
 
@@ -540,13 +541,13 @@ export default function Home() {
       <div className="mx-auto w-full max-w-7xl px-6 py-6">
         <header className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div className="flex items-center gap-3">
-            <div className="grid h-10 w-10 place-items-center overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
+            <div className="grid h-24 w-24 place-items-center overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
               <Image
-                src={logo}
+                src="/logo.png"
                 alt="Arrenda Crece"
-                width={40}
-                height={40}
-                className="h-10 w-10 object-contain"
+                width={84}
+                height={84}
+                className="h-[84px] w-[84px] object-contain"
                 priority
               />
             </div>
@@ -562,7 +563,7 @@ export default function Home() {
 
           <div className="flex flex-wrap items-center justify-start gap-2 md:justify-end">
             <Button onClick={restablecer}>Restablecer</Button>
-            <Button onClick={exportar}>Exportar JSON</Button>
+            <Button onClick={exportarPng}>Exportar PNG</Button>
             <Button onClick={exportarPdf}>Exportar PDF</Button>
             <Button onClick={() => {}}>Recalcular</Button>
             <Button variant="primary" onClick={guardar}>
@@ -598,6 +599,204 @@ export default function Home() {
 
         {tab === "cotizador" ? (
           <>
+        {/* Hoja oculta para exportación PNG (aprobación interna) */}
+        <div
+          style={{
+            position: "fixed",
+            left: "-10000px",
+            top: 0,
+            width: 1100,
+            background: "#ffffff",
+          }}
+          aria-hidden="true"
+        >
+          <div
+            ref={approvalRef}
+            className="w-[1100px] bg-white p-8 font-sans text-slate-900"
+          >
+            <div className="flex items-start justify-between gap-6">
+              <div className="flex items-center gap-4">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src="/logo.png"
+                  alt="Arrenda Crece"
+                  width={72}
+                  height={72}
+                  className="h-[72px] w-[72px] object-contain"
+                />
+                <div>
+                  <div className="text-xs font-extrabold uppercase tracking-[0.28em] text-slate-500">
+                    Aprobación interna de crédito
+                  </div>
+                  <div className="mt-1 text-2xl font-extrabold text-slate-900">
+                    Resumen de cotización
+                  </div>
+                  <div className="mt-1 text-sm font-semibold text-slate-600">
+                    Generado: {new Date().toLocaleString("es-MX")}
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-2xl bg-slate-50 px-5 py-4 ring-1 ring-slate-200">
+                <div className="text-xs font-extrabold uppercase tracking-wide text-slate-500">
+                  Totales clave
+                </div>
+                <div className="mt-2 grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
+                  <div className="font-semibold text-slate-600">Total contrato</div>
+                  <div className="text-right font-extrabold">{mxn.format(derived.totalContrato)}</div>
+                  <div className="font-semibold text-slate-600">Total anualizado</div>
+                  <div className="text-right font-extrabold">{mxn.format(derived.totalAnualizado)}</div>
+                  <div className="font-semibold text-slate-600">Rentabilidad económica</div>
+                  <div className="text-right font-extrabold">{pct.format(derived.rentabilidadEconomica)}</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-6 grid grid-cols-12 gap-6">
+              <div className="col-span-7 rounded-2xl bg-white p-6 ring-1 ring-slate-200">
+                <div className="text-sm font-extrabold text-slate-900">
+                  Datos generales
+                </div>
+                <div className="mt-4 grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+                  <div className="font-semibold text-slate-600">Cliente</div>
+                  <div className="font-extrabold text-right">{form.cliente || "—"}</div>
+                  <div className="font-semibold text-slate-600">Descripción del bien</div>
+                  <div className="font-extrabold text-right">{form.descripcionBien || "—"}</div>
+                  <div className="font-semibold text-slate-600">Valor del bien (con IVA)</div>
+                  <div className="font-extrabold text-right">{mxn.format(form.valorBienConIva)}</div>
+                  <div className="font-semibold text-slate-600">IVA (%)</div>
+                  <div className="font-extrabold text-right">{form.ivaPct.toFixed(2)}%</div>
+                  <div className="font-semibold text-slate-600">IVA del bien</div>
+                  <div className="font-extrabold text-right">{mxn.format(derived.ivaBien)}</div>
+                  <div className="font-semibold text-slate-600">Valor del bien (sin IVA)</div>
+                  <div className="font-extrabold text-right">{mxn.format(derived.valorBienSinIva)}</div>
+                </div>
+              </div>
+
+              <div className="col-span-5 rounded-2xl bg-white p-6 ring-1 ring-slate-200">
+                <div className="text-sm font-extrabold text-slate-900">
+                  Parámetros financieros
+                </div>
+                <div className="mt-4 grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+                  <div className="font-semibold text-slate-600">Plazo</div>
+                  <div className="text-right font-extrabold">{form.plazoMeses} meses</div>
+                  <div className="font-semibold text-slate-600">Tasa efectiva</div>
+                  <div className="text-right font-extrabold">{pct.format(form.tasaEfectivaPct / 100)}</div>
+                  <div className="font-semibold text-slate-600">Tasa implícita</div>
+                  <div className="text-right font-extrabold">{formatTasaImplicitaPctFull(derived.tasaImplicitaPct)}%</div>
+                  <div className="font-semibold text-slate-600">Comisión apertura (sin IVA)</div>
+                  <div className="text-right font-extrabold">{mxn.format(derived.comisionApertura)}</div>
+                  <div className="font-semibold text-slate-600">Depósito (sin IVA)</div>
+                  <div className="text-right font-extrabold">{mxn.format(derived.deposito)}</div>
+                  <div className="font-semibold text-slate-600">Ratificación (sin IVA)</div>
+                  <div className="text-right font-extrabold">{mxn.format(form.ratificacion)}</div>
+                  <div className="font-semibold text-slate-600">Seguro mensual (sin IVA)</div>
+                  <div className="text-right font-extrabold">{mxn.format(form.seguroMensual)}</div>
+                  <div className="font-semibold text-slate-600">GPS mensual (sin IVA)</div>
+                  <div className="text-right font-extrabold">{mxn.format(form.gpsMensual)}</div>
+                  <div className="font-semibold text-slate-600">Valor residual (sin IVA)</div>
+                  <div className="text-right font-extrabold">{mxn.format(derived.valorResidual)}</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-6 rounded-2xl bg-slate-900 p-6 text-white">
+              <div className="flex items-end justify-between gap-6">
+                <div>
+                  <div className="text-xs font-extrabold uppercase tracking-[0.28em] text-white/70">
+                    Resumen financiero
+                  </div>
+                  <div className="mt-2 text-3xl font-extrabold">
+                    {mxn.format(derived.rentaConIva)}
+                  </div>
+                  <div className="mt-1 text-sm font-semibold text-white/70">
+                    Renta mensual (con IVA)
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-x-10 gap-y-2 text-sm">
+                  <div className="font-semibold text-white/70">Renta mensual (sin IVA)</div>
+                  <div className="text-right font-extrabold">{mxn.format(derived.rentaMensual)}</div>
+                  <div className="font-semibold text-white/70">Pago inicial (total con IVA)</div>
+                  <div className="text-right font-extrabold">{mxn.format(derived.pagoInicialTotal)}</div>
+                  <div className="font-semibold text-white/70">Seguro mensual (con IVA)</div>
+                  <div className="text-right font-extrabold">{mxn.format(form.seguroMensual * (1 + form.ivaPct / 100))}</div>
+                  <div className="font-semibold text-white/70">GPS mensual (con IVA)</div>
+                  <div className="text-right font-extrabold">{mxn.format(form.gpsMensual * (1 + form.ivaPct / 100))}</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-6 rounded-2xl bg-white ring-1 ring-slate-200 overflow-hidden">
+              <div className="flex items-center justify-between bg-slate-50 px-6 py-4">
+                <div className="text-sm font-extrabold text-slate-900">
+                  Integración del arrendamiento (detalle)
+                </div>
+                <div className="text-xs font-semibold text-slate-500">
+                  Importe (sin IVA) · IVA · Total (con IVA)
+                </div>
+              </div>
+              <table className="w-full border-separate border-spacing-0">
+                <thead>
+                  <tr className="bg-white">
+                    <th className="px-6 py-3 text-left text-xs font-extrabold text-slate-600">
+                      Concepto
+                    </th>
+                    <th className="px-6 py-3 text-right text-xs font-extrabold text-slate-600">
+                      Importe (sin IVA)
+                    </th>
+                    <th className="px-6 py-3 text-right text-xs font-extrabold text-slate-600">
+                      IVA
+                    </th>
+                    <th className="px-6 py-3 text-right text-xs font-extrabold text-slate-600">
+                      Total (con IVA)
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {derived.conceptos.map((r) => (
+                    <tr key={r.concepto} className="border-t border-slate-100">
+                      <td className="px-6 py-3 text-sm font-semibold text-slate-800">
+                        {r.concepto}
+                      </td>
+                      <td className="px-6 py-3 text-right text-sm font-semibold text-slate-700">
+                        {mxn.format(r.importe)}
+                      </td>
+                      <td className="px-6 py-3 text-right text-sm font-semibold text-slate-500">
+                        {mxn.format(r.iva)}
+                      </td>
+                      <td
+                        className={`px-6 py-3 text-right text-sm font-extrabold ${
+                          r.total < 0 ? "text-rose-600" : "text-slate-800"
+                        }`}
+                      >
+                        {mxn.format(r.total)}
+                      </td>
+                    </tr>
+                  ))}
+                  <tr className="bg-slate-50">
+                    <td className="px-6 py-3 text-sm font-extrabold text-slate-900">
+                      Totales
+                    </td>
+                    <td className="px-6 py-3 text-right text-sm font-extrabold text-slate-900">
+                      {mxn.format(derived.totales.importe)}
+                    </td>
+                    <td className="px-6 py-3 text-right text-sm font-extrabold text-slate-900">
+                      {mxn.format(derived.totales.iva)}
+                    </td>
+                    <td className="px-6 py-3 text-right text-sm font-extrabold text-sky-700">
+                      {mxn.format(derived.totales.total)}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div className="mt-6 text-xs font-semibold text-slate-500">
+              Nota: Esta imagen es un resumen para autorización interna. Los importes pueden variar por redondeo.
+            </div>
+          </div>
+        </div>
+
         <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-12">
           <div className="lg:col-span-7">
             <section className={`${cardClassName("white")} p-6`}>
@@ -612,53 +811,67 @@ export default function Home() {
                 </div>
               </div>
 
-              <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
-                <Input
-                  label="Cliente"
-                  value={form.cliente}
-                  onChange={(v) => setForm((p) => ({ ...p, cliente: v }))}
-                />
-                <Input
-                  label="Descripción del bien"
-                  value={form.descripcionBien}
-                  onChange={(v) => setForm((p) => ({ ...p, descripcionBien: v }))}
-                />
-                <Input
-                  label="Valor del bien con IVA (MXN)"
-                  value={String(form.valorBienConIva)}
-                  inputMode="decimal"
-                  onChange={(v) =>
-                    setForm((p) => ({
-                      ...p,
-                      valorBienConIva: Math.max(0, toNumber(v)),
-                    }))
-                  }
-                />
-                <Input
-                  label="% IVA (%)"
-                  value={String(form.ivaPct)}
-                  inputMode="decimal"
-                  suffix="%"
-                  onChange={(v) =>
-                    setForm((p) => ({
-                      ...p,
-                      ivaPct: clampNumber(toNumber(v), 0, 30),
-                    }))
-                  }
-                />
-                <div className="rounded-xl bg-slate-50 px-4 py-3 ring-1 ring-slate-200">
+              <div className="mt-5 rounded-2xl bg-linear-to-br from-sky-50/90 via-white to-white p-4 ring-1 ring-sky-100 md:p-5">
+                <div className="text-[11px] font-extrabold uppercase tracking-wide text-sky-800/80">
+                  Campos editables
+                </div>
+                <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <Input
+                    label="Cliente"
+                    value={form.cliente}
+                    prominent
+                    onChange={(v) => setForm((p) => ({ ...p, cliente: v }))}
+                  />
+                  <Input
+                    label="Descripción del bien"
+                    value={form.descripcionBien}
+                    prominent
+                    onChange={(v) =>
+                      setForm((p) => ({ ...p, descripcionBien: v }))
+                    }
+                  />
+                  <Input
+                    label="Valor del bien con IVA (MXN)"
+                    value={String(form.valorBienConIva)}
+                    inputMode="decimal"
+                    prominent
+                    onChange={(v) =>
+                      setForm((p) => ({
+                        ...p,
+                        valorBienConIva: Math.max(0, toNumber(v)),
+                      }))
+                    }
+                  />
+                  <Input
+                    label="% IVA (%)"
+                    value={String(form.ivaPct)}
+                    inputMode="decimal"
+                    suffix="%"
+                    prominent
+                    onChange={(v) =>
+                      setForm((p) => ({
+                        ...p,
+                        ivaPct: clampNumber(toNumber(v), 0, 30),
+                      }))
+                    }
+                  />
+                </div>
+              </div>
+
+              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="rounded-xl bg-slate-50/80 px-4 py-3 ring-1 ring-slate-200/80">
                   <div className="text-[11px] font-extrabold uppercase tracking-wide text-slate-500">
                     IVA del bien
                   </div>
-                  <div className="mt-1 text-lg font-extrabold text-slate-900">
+                  <div className="mt-1 text-base font-extrabold text-slate-800">
                     {mxn.format(derived.ivaBien)}
                   </div>
                 </div>
-                <div className="rounded-xl bg-slate-50 px-4 py-3 ring-1 ring-slate-200">
+                <div className="rounded-xl bg-slate-50/80 px-4 py-3 ring-1 ring-slate-200/80">
                   <div className="text-[11px] font-extrabold uppercase tracking-wide text-slate-500">
                     Valor del bien sin IVA
                   </div>
-                  <div className="mt-1 text-lg font-extrabold text-slate-900">
+                  <div className="mt-1 text-base font-extrabold text-slate-800">
                     {mxn.format(derived.valorBienSinIva)}
                   </div>
                 </div>
@@ -675,203 +888,222 @@ export default function Home() {
                 </div>
               </div>
 
-              <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-3">
-                <Input
-                  label="Tasa efectiva (%)"
-                  value={efectivaDraft}
-                  inputMode="decimal"
-                  suffix="%"
-                  onFocus={() => setEfectivaFocused(true)}
-                  onChange={(v) => setEfectivaDraft(sanitizeDecimalDraft(v))}
-                  onBlur={() => {
-                    setEfectivaFocused(false);
-                    const parsed =
-                      efectivaDraft.trim() === ""
-                        ? form.tasaEfectivaPct
-                        : toNumber(efectivaDraft);
-                    const nextEf = clampNumber(parsed, 0, 200);
-                    setImplicitaManual(false);
-                    const nextIm = tasaImplicitaDesdeEfectivaPct(nextEf);
-                    setImplicitFocused(false);
-                    setForm((p) => ({
-                      ...p,
-                      tasaEfectivaPct: nextEf,
-                      tasaImplicitaPct: nextIm,
-                    }));
-                    setEfectivaDraft(String(nextEf));
-                    setImplicitDraft(formatTasaImplicitaPctFull(nextIm));
-                  }}
-                />
-                <div className="flex flex-col gap-2">
+              <div className="mt-5 rounded-2xl bg-linear-to-br from-sky-50/90 via-white to-white p-4 ring-1 ring-sky-100 md:p-5">
+                <div className="text-[11px] font-extrabold uppercase tracking-wide text-sky-800/80">
+                  Parámetros que ajustas
+                </div>
+                <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
                   <Input
-                    label="Tasa implícita (%)"
-                    value={implicitDraft}
+                    label="Tasa efectiva (%)"
+                    value={efectivaDraft}
                     inputMode="decimal"
                     suffix="%"
-                    onFocus={() => setImplicitFocused(true)}
-                    onChange={(v) => setImplicitDraft(sanitizeDecimalDraft(v))}
+                    prominent
+                    onFocus={() => setEfectivaFocused(true)}
+                    onChange={(v) => setEfectivaDraft(sanitizeDecimalDraft(v))}
                     onBlur={() => {
-                      setImplicitFocused(false);
+                      setEfectivaFocused(false);
                       const parsed =
-                        implicitDraft.trim() === ""
-                          ? form.tasaImplicitaPct
-                          : toNumber(implicitDraft);
-                      const nextIm = clampNumber(parsed, 0, 200);
-                      const auto = tasaImplicitaDesdeEfectivaPct(
-                        form.tasaEfectivaPct,
-                      );
-                      const manual = Math.abs(nextIm - auto) > EPS_IMPLICITA_AUTO;
-                      setImplicitaManual(manual);
-                      setForm((p) => ({ ...p, tasaImplicitaPct: nextIm }));
+                        efectivaDraft.trim() === ""
+                          ? form.tasaEfectivaPct
+                          : toNumber(efectivaDraft);
+                      const nextEf = clampNumber(parsed, 0, 200);
+                      setImplicitaManual(false);
+                      const nextIm = tasaImplicitaDesdeEfectivaPct(nextEf);
+                      setImplicitFocused(false);
+                      setForm((p) => ({
+                        ...p,
+                        tasaEfectivaPct: nextEf,
+                        tasaImplicitaPct: nextIm,
+                      }));
+                      setEfectivaDraft(String(nextEf));
                       setImplicitDraft(formatTasaImplicitaPctFull(nextIm));
                     }}
                   />
-                  <div className="text-xs font-semibold text-slate-500">
-                    {implicitaManual
-                      ? "Valor manual (al cambiar la tasa efectiva se vuelve a calcular sola)."
-                      : `Calculada desde efectiva: ${formatTasaImplicitaPctFull(
-                          tasaImplicitaDesdeEfectivaPct(
-                            efectivaFocused
-                              ? clampNumber(toNumber(efectivaDraft), 0, 200)
-                              : form.tasaEfectivaPct,
-                          ),
-                        )}%.`}
+                  <div className="flex flex-col gap-2">
+                    <Input
+                      label="Tasa implícita (%)"
+                      value={implicitDraft}
+                      inputMode="decimal"
+                      suffix="%"
+                      prominent
+                      onFocus={() => setImplicitFocused(true)}
+                      onChange={(v) => setImplicitDraft(sanitizeDecimalDraft(v))}
+                      onBlur={() => {
+                        setImplicitFocused(false);
+                        const parsed =
+                          implicitDraft.trim() === ""
+                            ? form.tasaImplicitaPct
+                            : toNumber(implicitDraft);
+                        const nextIm = clampNumber(parsed, 0, 200);
+                        const auto = tasaImplicitaDesdeEfectivaPct(
+                          form.tasaEfectivaPct,
+                        );
+                        const manual =
+                          Math.abs(nextIm - auto) > EPS_IMPLICITA_AUTO;
+                        setImplicitaManual(manual);
+                        setForm((p) => ({ ...p, tasaImplicitaPct: nextIm }));
+                        setImplicitDraft(formatTasaImplicitaPctFull(nextIm));
+                      }}
+                    />
+                    {implicitaManual ? (
+                      <div className="text-[11px] font-semibold leading-snug text-amber-800/90">
+                        Tasa implícita manual: al cambiar la efectiva se
+                        recalcula sola.
+                      </div>
+                    ) : null}
                   </div>
+                  <Input
+                    label="Plazo (meses)"
+                    value={plazoDraft}
+                    inputMode="numeric"
+                    selectOnFocus
+                    prominent
+                    onChange={(v) => {
+                      const digitsOnly = v.replace(/[^\d]/g, "");
+                      setPlazoDraft(digitsOnly);
+                    }}
+                    onBlur={() => {
+                      const n =
+                        plazoDraft === "" ? form.plazoMeses : Number(plazoDraft);
+                      const next = clampNumber(Math.round(n), 1, 120);
+                      setForm((p) => ({ ...p, plazoMeses: next }));
+                      setPlazoDraft(String(next));
+                    }}
+                  />
+
+                  <Input
+                    label="Ratificación (MXN)"
+                    value={String(form.ratificacion)}
+                    inputMode="decimal"
+                    prominent
+                    onChange={(v) =>
+                      setForm((p) => ({
+                        ...p,
+                        ratificacion: Math.max(0, toNumber(v)),
+                      }))
+                    }
+                  />
+                  <Input
+                    label="Valor residual (%)"
+                    value={String(form.valorResidualPct)}
+                    inputMode="decimal"
+                    suffix="%"
+                    prominent
+                    onChange={(v) =>
+                      setForm((p) => ({
+                        ...p,
+                        valorResidualPct: clampNumber(toNumber(v), 0, 100),
+                      }))
+                    }
+                  />
+
+                  <Input
+                    label="Depósito (meses renta sin IVA)"
+                    value={String(form.depositoMesesRenta)}
+                    inputMode="numeric"
+                    prominent
+                    onChange={(v) =>
+                      setForm((p) => ({
+                        ...p,
+                        depositoMesesRenta: clampNumber(
+                          Math.round(toNumber(v)),
+                          0,
+                          12,
+                        ),
+                      }))
+                    }
+                  />
+                  <Input
+                    label="Comisión apertura (%)"
+                    value={String(form.comisionAperturaPct)}
+                    inputMode="decimal"
+                    suffix="%"
+                    prominent
+                    onChange={(v) =>
+                      setForm((p) => ({
+                        ...p,
+                        comisionAperturaPct: clampNumber(toNumber(v), 0, 50),
+                      }))
+                    }
+                  />
+                  <Input
+                    label="Seguro mensual (MXN, sin IVA)"
+                    value={String(form.seguroMensual)}
+                    inputMode="decimal"
+                    prominent
+                    onChange={(v) =>
+                      setForm((p) => ({
+                        ...p,
+                        seguroMensual: Math.max(0, toNumber(v)),
+                      }))
+                    }
+                  />
+
+                  <Input
+                    label="GPS mensual (MXN, sin IVA)"
+                    value={String(form.gpsMensual)}
+                    inputMode="decimal"
+                    prominent
+                    onChange={(v) =>
+                      setForm((p) => ({
+                        ...p,
+                        gpsMensual: Math.max(0, toNumber(v)),
+                      }))
+                    }
+                  />
                 </div>
-                <Input
-                  label="Plazo (meses)"
-                  value={plazoDraft}
-                  inputMode="numeric"
-                  selectOnFocus
-                  onChange={(v) => {
-                    const digitsOnly = v.replace(/[^\d]/g, "");
-                    setPlazoDraft(digitsOnly);
-                  }}
-                  onBlur={() => {
-                    const n = plazoDraft === "" ? form.plazoMeses : Number(plazoDraft);
-                    const next = clampNumber(Math.round(n), 1, 120);
-                    setForm((p) => ({ ...p, plazoMeses: next }));
-                    setPlazoDraft(String(next));
-                  }}
-                />
+              </div>
 
-                <Input
-                  label="Renta mensual (MXN)"
-                  value={String(Math.round(derived.rentaMensual * 100) / 100)}
-                  inputMode="decimal"
-                  readOnly
-                  onChange={() => {}}
-                />
-                <Input
-                  label="Ratificación (MXN)"
-                  value={String(form.ratificacion)}
-                  inputMode="decimal"
-                  onChange={(v) =>
-                    setForm((p) => ({
-                      ...p,
-                      ratificacion: Math.max(0, toNumber(v)),
-                    }))
-                  }
-                />
-                <div className="-mt-2 text-xs font-semibold text-slate-500">
-                  Ratificación <span className="font-extrabold">sin IVA</span> (el
-                  IVA se considera dentro del pago inicial).
+              <div className="mt-5 rounded-2xl bg-slate-50/70 p-4 ring-1 ring-slate-200/80 md:p-5">
+                <div className="text-[11px] font-extrabold uppercase tracking-wide text-slate-500">
+                  Calculado automáticamente
                 </div>
-                <Input
-                  label="Pago inicial (MXN)"
-                  value={String(Math.round(derived.pagoInicialTotal * 100) / 100)}
-                  inputMode="decimal"
-                  readOnly
-                  onChange={() => {}}
-                />
-                <Input
-                  label="Valor residual (%)"
-                  value={String(form.valorResidualPct)}
-                  inputMode="decimal"
-                  suffix="%"
-                  onChange={(v) =>
-                    setForm((p) => ({
-                      ...p,
-                      valorResidualPct: clampNumber(toNumber(v), 0, 100),
-                    }))
-                  }
-                />
-
-                <Input
-                  label="Depósito (meses renta sin IVA)"
-                  value={String(form.depositoMesesRenta)}
-                  inputMode="numeric"
-                  onChange={(v) =>
-                    setForm((p) => ({
-                      ...p,
-                      depositoMesesRenta: clampNumber(
-                        Math.round(toNumber(v)),
-                        0,
-                        12,
-                      ),
-                    }))
-                  }
-                />
-                <Input
-                  label="Comisión apertura (%)"
-                  value={String(form.comisionAperturaPct)}
-                  inputMode="decimal"
-                  suffix="%"
-                  onChange={(v) =>
-                    setForm((p) => ({
-                      ...p,
-                      comisionAperturaPct: clampNumber(toNumber(v), 0, 50),
-                    }))
-                  }
-                />
-                <Input
-                  label="Comisión apertura (MXN)"
-                  value={String(Math.round(derived.comisionApertura * 100) / 100)}
-                  inputMode="decimal"
-                  readOnly
-                  onChange={() => {}}
-                />
-                <Input
-                  label="IVA comisión (MXN)"
-                  value={String(
-                    Math.round(derived.ivaComisionApertura * 100) / 100,
-                  )}
-                  inputMode="decimal"
-                  readOnly
-                  onChange={() => {}}
-                />
-                <Input
-                  label="Comisión apertura con IVA (MXN)"
-                  value={String(
-                    Math.round(derived.comisionAperturaConIva * 100) / 100,
-                  )}
-                  inputMode="decimal"
-                  readOnly
-                  onChange={() => {}}
-                />
-                <Input
-                  label="Seguro mensual (MXN)"
-                  value={String(form.seguroMensual)}
-                  inputMode="decimal"
-                  onChange={(v) =>
-                    setForm((p) => ({
-                      ...p,
-                      seguroMensual: Math.max(0, toNumber(v)),
-                    }))
-                  }
-                />
-
-                <Input
-                  label="GPS mensual (MXN)"
-                  value={String(form.gpsMensual)}
-                  inputMode="decimal"
-                  onChange={(v) =>
-                    setForm((p) => ({
-                      ...p,
-                      gpsMensual: Math.max(0, toNumber(v)),
-                    }))
-                  }
-                />
+                <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
+                  <Input
+                    label="Renta mensual (MXN)"
+                    value={String(Math.round(derived.rentaMensual * 100) / 100)}
+                    inputMode="decimal"
+                    readOnly
+                    onChange={() => {}}
+                  />
+                  <Input
+                    label="Pago inicial (MXN)"
+                    value={String(
+                      Math.round(derived.pagoInicialTotal * 100) / 100,
+                    )}
+                    inputMode="decimal"
+                    readOnly
+                    onChange={() => {}}
+                  />
+                  <Input
+                    label="Comisión apertura (MXN)"
+                    value={String(
+                      Math.round(derived.comisionApertura * 100) / 100,
+                    )}
+                    inputMode="decimal"
+                    readOnly
+                    onChange={() => {}}
+                  />
+                  <Input
+                    label="IVA comisión (MXN)"
+                    value={String(
+                      Math.round(derived.ivaComisionApertura * 100) / 100,
+                    )}
+                    inputMode="decimal"
+                    readOnly
+                    onChange={() => {}}
+                  />
+                  <Input
+                    label="Comisión apertura con IVA (MXN)"
+                    value={String(
+                      Math.round(derived.comisionAperturaConIva * 100) / 100,
+                    )}
+                    inputMode="decimal"
+                    readOnly
+                    onChange={() => {}}
+                  />
+                </div>
               </div>
             </section>
           </div>

@@ -82,23 +82,34 @@ function sanitizeDecimalDraft(raw: string) {
 }
 
 /**
- * Nominal anual equivalente a la tasa efectiva (misma idea que `NOMINAL` en Excel).
- * Con npery=12 coincide con capitalización mensual estricta; con ~17.92 se alinea con
- * modelos que reportan nominal en otra base (p. ej. ~26.4294% para 30% efectiva).
- * La renta del arrendamiento sigue usando meses calendario: (1+efectiva)^(1/12)-1.
+ * Nominal anual equivalente a la tasa efectiva (misma idea que `NOMINAL(efectiva; npery)`).
+ * `NPERY` calibrado para que, con 30% efectiva y redondeo a 6 decimales, la implícita sea
+ * exactamente 26.429349%. La renta sigue usando (1+efectiva)^(1/12)-1 (mensual).
  */
-const NPERY_TASA_IMPLICITA_DESDE_EFECTIVA = 17.9227;
+const NPERY_TASA_IMPLICITA_DESDE_EFECTIVA = 17.927410262267934;
+const TASA_IMPLICITA_DECIMALES = 6;
 
 function tasaImplicitaDesdeEfectivaPct(tasaEfectivaPct: number) {
   const tasaEfectiva = clampNumber(tasaEfectivaPct / 100, 0, 10);
   const n = NPERY_TASA_IMPLICITA_DESDE_EFECTIVA;
-  return (n * (Math.pow(1 + tasaEfectiva, 1 / n) - 1)) * 100;
+  const rawPct = (n * (Math.pow(1 + tasaEfectiva, 1 / n) - 1)) * 100;
+  const factor = 10 ** TASA_IMPLICITA_DECIMALES;
+  return Math.round(rawPct * factor) / factor;
 }
 
 function tasaMensualDesdeEfectivaPct(tasaEfectivaPct: number) {
   const tasaEfectiva = clampNumber(tasaEfectivaPct / 100, 0, 10);
   return Math.pow(1 + tasaEfectiva, 1 / 12) - 1;
 }
+
+/** Muestra la tasa en % con hasta 14 decimales (sin redondeo agresivo a 2 cifras). */
+function formatTasaImplicitaPctFull(value: number): string {
+  if (!Number.isFinite(value)) return "0";
+  const s = value.toFixed(14);
+  return s.replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "");
+}
+
+const EPS_IMPLICITA_AUTO = 1e-9;
 
 function downloadJson(filename: string, data: unknown) {
   const blob = new Blob([JSON.stringify(data, null, 2)], {
@@ -247,7 +258,7 @@ export default function Home() {
     String(initial.tasaEfectivaPct),
   );
   const [implicitDraft, setImplicitDraft] = useState<string>(
-    String(initial.tasaImplicitaPct),
+    formatTasaImplicitaPctFull(initial.tasaImplicitaPct),
   );
   const [efectivaFocused, setEfectivaFocused] = useState(false);
   const [implicitFocused, setImplicitFocused] = useState(false);
@@ -261,7 +272,9 @@ export default function Home() {
   }, [form.tasaEfectivaPct, efectivaFocused]);
 
   useEffect(() => {
-    if (!implicitFocused) setImplicitDraft(String(form.tasaImplicitaPct));
+    if (!implicitFocused) {
+      setImplicitDraft(formatTasaImplicitaPctFull(form.tasaImplicitaPct));
+    }
   }, [form.tasaImplicitaPct, implicitFocused]);
 
   const derived = useMemo(() => {
@@ -523,7 +536,7 @@ export default function Home() {
     setEfectivaFocused(false);
     setImplicitFocused(false);
     setEfectivaDraft(String(initial.tasaEfectivaPct));
-    setImplicitDraft(String(initial.tasaImplicitaPct));
+    setImplicitDraft(formatTasaImplicitaPctFull(initial.tasaImplicitaPct));
   };
 
   return (
@@ -690,7 +703,7 @@ export default function Home() {
                       tasaImplicitaPct: nextIm,
                     }));
                     setEfectivaDraft(String(nextEf));
-                    setImplicitDraft(String(nextIm));
+                    setImplicitDraft(formatTasaImplicitaPctFull(nextIm));
                   }}
                 />
                 <div className="flex flex-col gap-2">
@@ -711,24 +724,22 @@ export default function Home() {
                       const auto = tasaImplicitaDesdeEfectivaPct(
                         form.tasaEfectivaPct,
                       );
-                      const manual =
-                        Math.round(nextIm * 100) / 100 !==
-                        Math.round(auto * 100) / 100;
+                      const manual = Math.abs(nextIm - auto) > EPS_IMPLICITA_AUTO;
                       setImplicitaManual(manual);
                       setForm((p) => ({ ...p, tasaImplicitaPct: nextIm }));
-                      setImplicitDraft(String(nextIm));
+                      setImplicitDraft(formatTasaImplicitaPctFull(nextIm));
                     }}
                   />
                   <div className="text-xs font-semibold text-slate-500">
                     {implicitaManual
                       ? "Valor manual (al cambiar la tasa efectiva se vuelve a calcular sola)."
-                      : `Calculada desde efectiva: ${Math.round(
+                      : `Calculada desde efectiva: ${formatTasaImplicitaPctFull(
                           tasaImplicitaDesdeEfectivaPct(
                             efectivaFocused
                               ? clampNumber(toNumber(efectivaDraft), 0, 200)
                               : form.tasaEfectivaPct,
-                          ) * 100,
-                        ) / 100}%.`}
+                          ),
+                        )}%.`}
                   </div>
                 </div>
                 <Input
@@ -922,8 +933,8 @@ export default function Home() {
                   <div className="text-[10px] font-extrabold uppercase tracking-wide text-white/70">
                     Tasa implícita
                   </div>
-                  <div className="mt-2 text-lg font-extrabold">
-                    {pct.format(derived.tasaImplicitaPct / 100)}
+                  <div className="mt-2 break-all text-lg font-extrabold">
+                    {formatTasaImplicitaPctFull(derived.tasaImplicitaPct)}%
                   </div>
                 </div>
                 <div className="rounded-2xl bg-white/10 p-4 ring-1 ring-white/15">

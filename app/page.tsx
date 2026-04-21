@@ -84,7 +84,8 @@ function sanitizeDecimalDraft(raw: string) {
 /**
  * Nominal anual equivalente a la tasa efectiva (misma idea que `NOMINAL(efectiva; npery)`).
  * `NPERY` calibrado para que, con 30% efectiva y redondeo a 6 decimales, la implícita sea
- * exactamente 26.429349%. La renta sigue usando (1+efectiva)^(1/12)-1 (mensual).
+ * exactamente 26.429349%. La renta mensual usa siempre implícita/12 (sin saltar a
+ * otra fórmula cuando el valor coincide con el calculado desde la efectiva).
  */
 const NPERY_TASA_IMPLICITA_DESDE_EFECTIVA = 17.927410262267934;
 const TASA_IMPLICITA_DECIMALES = 6;
@@ -95,11 +96,6 @@ function tasaImplicitaDesdeEfectivaPct(tasaEfectivaPct: number) {
   const rawPct = (n * (Math.pow(1 + tasaEfectiva, 1 / n) - 1)) * 100;
   const factor = 10 ** TASA_IMPLICITA_DECIMALES;
   return Math.round(rawPct * factor) / factor;
-}
-
-function tasaMensualDesdeEfectivaPct(tasaEfectivaPct: number) {
-  const tasaEfectiva = clampNumber(tasaEfectivaPct / 100, 0, 10);
-  return Math.pow(1 + tasaEfectiva, 1 / 12) - 1;
 }
 
 /** Muestra la tasa en % con hasta 14 decimales (sin redondeo agresivo a 2 cifras). */
@@ -288,9 +284,9 @@ export default function Home() {
     const valorConIva = form.valorBienConIva;
 
     const meses = clampNumber(form.plazoMeses, 1, 120);
-    const tasaMensual = implicitaManual
-      ? clampNumber((tasaImplicitaPct / 100) / 12, 0, 1)
-      : clampNumber(tasaMensualDesdeEfectivaPct(form.tasaEfectivaPct), 0, 1);
+    // Siempre nominal/12: evita brincos cuando «manual» coincide con el auto y antes
+    // se cambiaba a (1+efectiva)^(1/12)-1 (rentas muy distintas).
+    const tasaMensual = clampNumber((tasaImplicitaPct / 100) / 12, 0, 1);
     const principalFinanciado = Math.max(0, valorBienSinIva);
     const fv = (valorBienSinIva * form.valorResidualPct) / 100;
     const descuentoFv =
@@ -437,7 +433,7 @@ export default function Home() {
       totalAnualizado,
       rentabilidadEconomica,
     };
-  }, [form, implicitaManual]);
+  }, [form]);
 
   const exportar = () => {
     const payload = {

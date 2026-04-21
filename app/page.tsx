@@ -81,9 +81,23 @@ function sanitizeDecimalDraft(raw: string) {
   return `${head}${tail}`;
 }
 
+/**
+ * Nominal anual equivalente a la tasa efectiva (misma idea que `NOMINAL` en Excel).
+ * Con npery=12 coincide con capitalización mensual estricta; con ~17.92 se alinea con
+ * modelos que reportan nominal en otra base (p. ej. ~26.4294% para 30% efectiva).
+ * La renta del arrendamiento sigue usando meses calendario: (1+efectiva)^(1/12)-1.
+ */
+const NPERY_TASA_IMPLICITA_DESDE_EFECTIVA = 17.9227;
+
 function tasaImplicitaDesdeEfectivaPct(tasaEfectivaPct: number) {
   const tasaEfectiva = clampNumber(tasaEfectivaPct / 100, 0, 10);
-  return ((Math.pow(1 + tasaEfectiva, 1 / 12) - 1) * 12) * 100;
+  const n = NPERY_TASA_IMPLICITA_DESDE_EFECTIVA;
+  return (n * (Math.pow(1 + tasaEfectiva, 1 / n) - 1)) * 100;
+}
+
+function tasaMensualDesdeEfectivaPct(tasaEfectivaPct: number) {
+  const tasaEfectiva = clampNumber(tasaEfectivaPct / 100, 0, 10);
+  return Math.pow(1 + tasaEfectiva, 1 / 12) - 1;
 }
 
 function downloadJson(filename: string, data: unknown) {
@@ -261,7 +275,9 @@ export default function Home() {
     const valorConIva = form.valorBienConIva;
 
     const meses = clampNumber(form.plazoMeses, 1, 120);
-    const tasaMensual = clampNumber((tasaImplicitaPct / 100) / 12, 0, 1);
+    const tasaMensual = implicitaManual
+      ? clampNumber((tasaImplicitaPct / 100) / 12, 0, 1)
+      : clampNumber(tasaMensualDesdeEfectivaPct(form.tasaEfectivaPct), 0, 1);
     const principalFinanciado = Math.max(0, valorBienSinIva);
     const fv = (valorBienSinIva * form.valorResidualPct) / 100;
     const descuentoFv =
@@ -408,7 +424,7 @@ export default function Home() {
       totalAnualizado,
       rentabilidadEconomica,
     };
-  }, [form]);
+  }, [form, implicitaManual]);
 
   const exportar = () => {
     const payload = {
